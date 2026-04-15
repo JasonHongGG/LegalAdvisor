@@ -1,0 +1,14 @@
+.appContainer {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.mainContent {
+  flex: 1;
+  margin-left: 260px; /* Offset for sidebar */
+  padding: 40px 48px;
+  max-width: calc(100vw - 260px);
+  overflow-y: auto;
+  height: 100vh;
+}

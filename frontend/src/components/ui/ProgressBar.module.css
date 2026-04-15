@@ -1,0 +1,80 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.running { color: var(--accent-primary); }
+.success { color: var(--accent-success); }
+.error { color: var(--accent-danger); }
+.idle { color: var(--text-muted); }
+
+.track {
+  height: 6px;
+  background-color: rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+}
+
+.fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease-out, background-color 0.3s ease;
+}
+
+.fill-running {
+  background-color: var(--accent-primary);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+}
+
+.fill-success {
+  background-color: var(--accent-success);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
+
+.fill-error {
+  background-color: var(--accent-danger);
+}
+
+.fill-idle {
+  background-color: var(--text-muted);
+}
+
+.animated {
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.15) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.15) 50%,
+    rgba(255, 255, 255, 0.15) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 1rem 1rem;
+  animation: stripe 1s linear infinite;
+}
+
+@keyframes stripe {
+  from { background-position: 1rem 0; }
+  to { background-position: 0 0; }
+}
