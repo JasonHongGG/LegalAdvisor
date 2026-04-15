@@ -1,6 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import zlib from 'node:zlib';
+import { parseJsonText } from './utils.js';
 
 export interface HttpRequestOptions {
   headers?: Record<string, string>;
@@ -87,7 +88,7 @@ function makeRequest(urlString: string, options: HttpRequestOptions = {}, redire
                 return buffer.toString('utf-8');
               },
               json<T>() {
-                return JSON.parse(buffer.toString('utf-8')) as T;
+                return parseJsonText<T>(buffer.toString('utf-8'));
               },
             });
           } catch (error) {

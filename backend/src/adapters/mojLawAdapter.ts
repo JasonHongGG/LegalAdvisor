@@ -2,7 +2,7 @@ import AdmZip from 'adm-zip';
 import type { LawTargetConfig } from '@legaladvisor/shared';
 import type { AdapterContext, SourceAdapter } from './base.js';
 import { httpClient } from '../httpClient.js';
-import { normalizeWhitespace, toMarkdownHeading } from '../utils.js';
+import { normalizeWhitespace, parseJsonText, toMarkdownHeading } from '../utils.js';
 
 interface MojLawRecord {
   LawLevel: string;
@@ -103,7 +103,7 @@ export class MojLawAdapter implements SourceAdapter {
       lastMessage: '解析法規資料中',
     });
 
-    const archive = JSON.parse(zip.readAsText(jsonEntry, 'utf-8')) as MojArchive;
+    const archive = parseJsonText<MojArchive>(zip.readAsText(jsonEntry, 'utf-8'));
     const matchedLaws = archive.Laws.filter((record) => matchLaw(record, target));
     if (!matchedLaws.length) {
       throw new Error(`找不到符合「${target.query}」的法規。`);

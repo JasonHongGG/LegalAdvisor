@@ -11,10 +11,9 @@ import type {
 import { createTaskRequestSchema } from '@legaladvisor/shared';
 import { getAdapter } from '../adapters/index.js';
 import type { AdapterContext } from '../adapters/base.js';
-import type { CrawlRepository } from '../db/crawlRepository.js';
+import type { CrawlRepositoryPort, QueueServicePort } from '../contracts/runtime.js';
 import { createId, safeFileName } from '../utils.js';
 import type { EventBus } from './eventBus.js';
-import type { QueueService } from './queueService.js';
 import type { SourceHealthService } from './sourceHealthService.js';
 import { StorageService } from './storageService.js';
 
@@ -28,10 +27,10 @@ function taskUpdateEvent(taskId: string) {
 
 export class TaskService {
   constructor(
-    private readonly repository: CrawlRepository,
+    private readonly repository: CrawlRepositoryPort,
     private readonly storageService: StorageService,
     private readonly eventBus: EventBus,
-    private readonly queueService: QueueService,
+    private readonly queueService: QueueServicePort,
     private readonly sourceHealthService: SourceHealthService,
   ) {}
 
@@ -183,7 +182,7 @@ export class TaskService {
     this.eventBus.publish(taskUpdateEvent(taskId));
   }
 
-  private createAdapterContext(taskId: string, workItemId: string, source: Awaited<ReturnType<CrawlRepository['getSourceById']>> extends infer T ? NonNullable<T> : never, target: TaskTargetConfig): AdapterContext {
+  private createAdapterContext(taskId: string, workItemId: string, source: Awaited<ReturnType<CrawlRepositoryPort['getSourceById']>> extends infer T ? NonNullable<T> : never, target: TaskTargetConfig): AdapterContext {
     return {
       taskId,
       workItemId,

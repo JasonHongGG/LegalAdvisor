@@ -1,9 +1,9 @@
 import { SOURCE_CATALOG, type SourceId } from '@legaladvisor/shared';
-import type { CrawlRepository } from '../db/crawlRepository.js';
+import type { CrawlRepositoryPort } from '../contracts/runtime.js';
 import { httpClient } from '../httpClient.js';
 
 export class SourceHealthService {
-  constructor(private readonly repository: CrawlRepository) {}
+  constructor(private readonly repository: CrawlRepositoryPort) {}
 
   async refreshAll() {
     await Promise.all(SOURCE_CATALOG.map((source) => this.refreshSource(source.id)));

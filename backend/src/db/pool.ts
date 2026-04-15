@@ -2,6 +2,10 @@ import { Pool } from 'pg';
 import type { AppConfig } from '../config.js';
 
 export function createPool(config: AppConfig) {
+  if (!config.supabaseDbUrl) {
+    throw new Error('SUPABASE_DB_URL is required when DATABASE_WRITE_MODE=enabled.');
+  }
+
   const disableSsl = config.supabaseDbUrl.includes('sslmode=disable');
   const pool = new Pool({
     connectionString: config.supabaseDbUrl,

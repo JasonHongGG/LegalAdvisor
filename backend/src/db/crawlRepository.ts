@@ -17,6 +17,7 @@ import type {
   WorkItemStatus,
 } from '@legaladvisor/shared';
 import { SOURCE_CATALOG } from '@legaladvisor/shared';
+import type { CrawlRepositoryPort } from '../contracts/runtime.js';
 import { createId } from '../utils.js';
 
 type SourceHealthPatch = {
@@ -59,7 +60,7 @@ function toIsoString(value: unknown): string | null {
   return value instanceof Date ? value.toISOString() : String(value);
 }
 
-export class CrawlRepository {
+export class CrawlRepository implements CrawlRepositoryPort {
   constructor(
     private readonly db: Pool,
     private readonly schema: string,

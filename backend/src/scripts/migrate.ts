@@ -10,6 +10,15 @@ const __dirname = path.dirname(__filename);
 
 async function main() {
   const config = loadConfig();
+  if (!config.databaseWritesEnabled) {
+    console.log('DATABASE_WRITE_MODE=disabled, skip database migration.');
+    return;
+  }
+
+  if (!config.supabaseDbUrl) {
+    throw new Error('SUPABASE_DB_URL is required when DATABASE_WRITE_MODE=enabled.');
+  }
+
   const pool = new Pool({
     connectionString: config.supabaseDbUrl,
     ssl: config.supabaseDbUrl.includes('sslmode=disable') ? false : undefined,

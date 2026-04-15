@@ -1,11 +1,16 @@
 import PgBoss from 'pg-boss';
+import type { QueueServicePort } from '../contracts/runtime.js';
 import type { AppConfig } from '../config.js';
 
-export class QueueService {
+export class QueueService implements QueueServicePort {
   private readonly boss: PgBoss;
   private started = false;
 
   constructor(config: AppConfig) {
+    if (!config.supabaseDbUrl) {
+      throw new Error('SUPABASE_DB_URL is required when DATABASE_WRITE_MODE=enabled.');
+    }
+
     this.boss = new PgBoss({
       connectionString: config.supabaseDbUrl,
       schema: config.supabaseQueueSchema,
