@@ -777,9 +777,9 @@ export function ScrapingDashboard() {
                     </div>
                   </div>
 
-                  <div className={styles.taskRailFoot}>
-                    <span>{`${task.completedWorkItems}/${task.totalWorkItems} 已完成`}</span>
-                    <span>{`${Math.round(task.overallProgress)}%`}</span>
+                  <div className={styles.taskRailMetaRow}>
+                    <span className={styles.taskUpdatedAt}>{formatDateTime(task.updatedAt)}</span>
+                    <span className={styles.taskRailSource}>{task.sourceName}</span>
                   </div>
                   <ProgressBar
                     progress={task.overallProgress}
