@@ -180,6 +180,52 @@
   line-height: 1.5;
 }
 
+.tagSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.tagLabel {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.tagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-light);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.tagChip:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.tagChipActive {
+  border-color: rgba(96, 165, 250, 0.45);
+  background: rgba(59, 130, 246, 0.14);
+  color: #bfdbfe;
+}
+
 .input {
   width: 100%;
   border: 1px solid var(--border-light);
@@ -336,7 +382,6 @@
   flex-shrink: 0;
 }
 
-.taskUpdatedAt,
 .previewSubline,
 .timelineMeta {
   color: var(--text-muted);
@@ -358,16 +403,6 @@
   white-space: nowrap;
 }
 
-.taskRailMetaRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--text-muted);
-  font-size: 0.82rem;
-}
-
-.taskRailSource,
 .taskRailDuration {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -696,7 +731,6 @@
 
 @media (max-width: 720px) {
   .taskRailTop,
-  .taskRailMetaRow,
   .taskRailFoot {
     flex-direction: column;
     align-items: flex-start;

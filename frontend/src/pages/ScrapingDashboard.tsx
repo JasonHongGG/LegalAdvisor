@@ -44,6 +44,37 @@ type TimelineStep = {
 const AUTO_TASK_SYNC_MS = 15_000;
 const AUTO_SOURCE_SYNC_MS = 60_000;
 
+const COMMON_LAW_TAGS = [
+  '民法',
+  '刑法',
+  '民事訴訟法',
+  '刑事訴訟法',
+  '行政程序法',
+  '行政訴訟法',
+  '強制執行法',
+  '公司法',
+  '商業會計法',
+  '證券交易法',
+  '保險法',
+  '票據法',
+  '勞動基準法',
+  '勞工保險條例',
+  '就業服務法',
+  '性別平等工作法',
+  '職業安全衛生法',
+  '消費者保護法',
+  '公平交易法',
+  '個人資料保護法',
+  '著作權法',
+  '專利法',
+  '商標法',
+  '土地法',
+  '國家賠償法',
+  '家庭暴力防治法',
+  '兒童及少年福利與權益保障法',
+  '洗錢防制法',
+] as const;
+
 const STATUS_LABELS: Record<string, string> = {
   draft: '草稿',
   queued: '等待中',
@@ -576,6 +607,13 @@ export function ScrapingDashboard() {
     setFormValues((current) => ({ ...current, [name]: value }));
   }
 
+  function applyLawTag(tag: string) {
+    setFormValues((current) => ({
+      ...current,
+      query: tag,
+    }));
+  }
+
   function selectTask(taskId: string) {
     setActiveTaskId(taskId);
     void loadTaskDetail(taskId);
@@ -671,6 +709,26 @@ export function ScrapingDashboard() {
                           value={String(formValues[field.name] ?? '')}
                           onChange={(event) => updateFormValue(field.name, event.target.value)}
                         />
+                        {selectedSourceId === 'moj-laws' && field.name === 'query' && (
+                          <div className={styles.tagSection}>
+                            <span className={styles.tagLabel}>常用法規 TAG</span>
+                            <div className={styles.tagList}>
+                              {COMMON_LAW_TAGS.map((tag) => {
+                                const isActive = String(formValues.query ?? '') === tag;
+                                return (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    className={clsx(styles.tagChip, isActive && styles.tagChipActive)}
+                                    onClick={() => applyLawTag(tag)}
+                                  >
+                                    {tag}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                         {field.description && <small className={styles.fieldHint}>{field.description}</small>}
                       </label>
                     );
@@ -717,11 +775,6 @@ export function ScrapingDashboard() {
                       </span>
                       <span className={styles.taskRailDuration}>{describeTaskDuration(task, nowTimestamp)}</span>
                     </div>
-                  </div>
-
-                  <div className={styles.taskRailMetaRow}>
-                    <span className={styles.taskUpdatedAt}>{formatDateTime(task.updatedAt)}</span>
-                    <span className={styles.taskRailSource}>{task.sourceName}</span>
                   </div>
 
                   <div className={styles.taskRailFoot}>
