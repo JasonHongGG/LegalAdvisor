@@ -268,7 +268,7 @@ export class CrawlRepository implements CrawlRepositoryPort {
     const [workItemsResult, artifactsResult, eventsResult, checkpointsResult] = await Promise.all([
       this.db.query(`select * from ${this.table('crawl_work_items')} where task_id = $1 order by sequence_no asc`, [taskId]),
       this.db.query(`select * from ${this.table('crawl_artifacts')} where task_id = $1 order by created_at desc`, [taskId]),
-      this.db.query(`select * from ${this.table('crawl_events')} where task_id = $1 order by occurred_at desc limit 50`, [taskId]),
+      this.db.query(`select * from ${this.table('crawl_events')} where task_id = $1 order by occurred_at desc limit 200`, [taskId]),
       this.db.query(`select * from ${this.table('crawl_checkpoints')} where task_id = $1 order by updated_at desc`, [taskId]),
     ]);
 
@@ -687,7 +687,7 @@ export class CrawlRepository implements CrawlRepositoryPort {
       finishedAt: toIsoString(row.finished_at),
       updatedAt: toIsoString(row.updated_at) ?? new Date().toISOString(),
       artifacts: artifacts.filter((artifact) => artifact.workItemId === workItemId),
-      recentEvents: events.filter((event) => event.workItemId === workItemId).slice(0, 10),
+      recentEvents: events.filter((event) => event.workItemId === workItemId).slice(0, 50),
     };
   }
 }

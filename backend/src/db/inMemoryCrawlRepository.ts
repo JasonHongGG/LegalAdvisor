@@ -217,14 +217,14 @@ export class InMemoryCrawlRepository implements CrawlRepositoryPort {
       .slice()
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .map((artifact) => clone(artifact));
-    const events = state.events.slice(0, 50).map((event) => clone(event));
+    const events = state.events.slice(0, 200).map((event) => clone(event));
     const workItems = state.workItems
       .slice()
       .sort((left, right) => left.sequenceNo - right.sequenceNo)
       .map((workItem) => ({
         ...clone(workItem),
         artifacts: artifacts.filter((artifact) => artifact.workItemId === workItem.id),
-        recentEvents: state.events.filter((event) => event.workItemId === workItem.id).slice(0, 10).map((event) => clone(event)),
+        recentEvents: state.events.filter((event) => event.workItemId === workItem.id).slice(0, 50).map((event) => clone(event)),
       }));
     const checkpoints = [...state.checkpoints.values()]
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))

@@ -2,6 +2,7 @@ import type {
   CreateTaskRequest,
   CrawlArtifact,
   CrawlTaskDetail,
+  CrawlWorkItem,
   EventLevel,
   EventType,
   SourceId,
@@ -64,6 +65,14 @@ export class TaskService {
     const input = createTaskRequestSchema.parse(payload);
     const taskId = await this.repository.createTask(input);
     await this.repository.setTaskStatus(taskId, 'queued', '任務已建立，等待工作器接手');
+    const createdTask = await this.getTaskOrThrow(taskId);
+    for (const workItem of createdTask.workItems) {
+      await this.appendTaskEvent(taskId, workItem.id, 'work-item-status', 'info', workItem.lastMessage, {
+        status: workItem.status,
+        currentStage: workItem.currentStage,
+        label: workItem.label,
+      });
+    }
     this.eventBus.publish({ kind: 'task-created', taskId, occurredAt: new Date().toISOString() });
     await this.queueService.enqueueTask(taskId);
     return this.getTaskOrThrow(taskId);
@@ -189,6 +198,9 @@ export class TaskService {
       source,
       target,
       updateWorkItem: async (patch) => {
+        const currentTask = await this.getTaskOrThrow(taskId);
+        const currentWorkItem = currentTask.workItems.find((entry) => entry.id === workItemId) ?? null;
+
         await this.repository.updateWorkItem(workItemId, {
           status: patch.status,
           progress: patch.progress,
@@ -204,6 +216,12 @@ export class TaskService {
           started_at: patch.startedAt,
           finished_at: patch.finishedAt,
         });
+
+        const statusEvent = this.buildWorkItemStatusEvent(currentWorkItem, patch);
+        if (statusEvent) {
+          await this.appendTaskEvent(taskId, workItemId, 'work-item-status', statusEvent.level, statusEvent.message, statusEvent.details);
+        }
+
         await this.repository.recomputeTaskStats(taskId);
         this.eventBus.publish(taskUpdateEvent(taskId));
       },
@@ -265,6 +283,54 @@ export class TaskService {
       incrementSourceRequestCount: async (amount = 1) => {
         await this.repository.incrementSourceRequestCount(source.id, amount);
         this.eventBus.publish({ kind: 'source-updated', sourceId: source.id, occurredAt: new Date().toISOString() });
+      },
+    };
+  }
+
+  private buildWorkItemStatusEvent(
+    currentWorkItem: CrawlWorkItem | null,
+    patch: {
+      status?: string;
+      progress?: number;
+      currentStage?: string;
+      sourceLocator?: string | null;
+      cursor?: Record<string, unknown> | null;
+      lastMessage?: string;
+      itemsProcessed?: number;
+      itemsTotal?: number;
+      warningCount?: number;
+      errorCount?: number;
+      retryCount?: number;
+      startedAt?: string | null;
+      finishedAt?: string | null;
+    },
+  ): { level: EventLevel; message: string; details: Record<string, unknown> } | null {
+    if (!currentWorkItem) {
+      return null;
+    }
+
+    const statusChanged = patch.status !== undefined && patch.status !== currentWorkItem.status;
+    const stageChanged = patch.currentStage !== undefined && patch.currentStage !== currentWorkItem.currentStage;
+    const startedChanged = patch.startedAt !== undefined && patch.startedAt !== currentWorkItem.startedAt;
+    const finishedChanged = patch.finishedAt !== undefined && patch.finishedAt !== currentWorkItem.finishedAt;
+
+    if (!statusChanged && !stageChanged && !startedChanged && !finishedChanged) {
+      return null;
+    }
+
+    const nextStatus = patch.status ?? currentWorkItem.status;
+    const nextStage = patch.currentStage ?? currentWorkItem.currentStage;
+    const nextMessage = patch.lastMessage ?? currentWorkItem.lastMessage;
+
+    return {
+      level: nextStatus === 'failed' ? 'error' : 'info',
+      message: nextMessage || `狀態更新：${nextStage}`,
+      details: {
+        status: nextStatus,
+        currentStage: nextStage,
+        label: currentWorkItem.label,
+        itemsProcessed: patch.itemsProcessed ?? currentWorkItem.itemsProcessed,
+        itemsTotal: patch.itemsTotal ?? currentWorkItem.itemsTotal,
       },
     };
   }

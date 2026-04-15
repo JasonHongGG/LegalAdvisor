@@ -113,7 +113,16 @@ export class MojLawAdapter implements SourceAdapter {
       status: 'normalizing',
       progress: 45,
       currentStage: 'normalizing',
-      lastMessage: `找到 ${matchedLaws.length} 部法規，開始輸出快照`,
+      lastMessage: `找到 ${matchedLaws.length} 部法規，整理資料中`,
+      itemsTotal: matchedLaws.length,
+      itemsProcessed: 0,
+    });
+
+    await context.updateWorkItem({
+      status: 'writing_output',
+      progress: 55,
+      currentStage: 'writing_output',
+      lastMessage: `開始輸出 ${matchedLaws.length} 部法規快照`,
       itemsTotal: matchedLaws.length,
       itemsProcessed: 0,
     });

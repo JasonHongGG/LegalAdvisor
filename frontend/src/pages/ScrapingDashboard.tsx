@@ -11,18 +11,12 @@ import type {
 } from '@legaladvisor/shared';
 import {
   AlertTriangle,
-  ChevronDown,
-  ChevronRight,
   CirclePause,
   CirclePlay,
   Database,
   Download,
-  FileDown,
   FileText,
-  Gauge,
-  ListChecks,
-  RefreshCw,
-  RotateCcw,
+  RefreshCcw,
   Scale,
   XCircle,
 } from 'lucide-react';
@@ -35,6 +29,42 @@ import { api } from '../lib/api';
 
 type FieldValue = string | number | boolean;
 
+type TimelineStep = {
+  id: string;
+  title: string;
+  context: string | null;
+  workItemId: string | null;
+  startedAtLabel: string;
+  startedAtMs: number;
+  durationLabel: string;
+  stateLabel: string;
+  stateTone: 'done' | 'running' | 'failed' | 'cancelled';
+};
+
+const AUTO_TASK_SYNC_MS = 15_000;
+const AUTO_SOURCE_SYNC_MS = 60_000;
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: '草稿',
+  queued: '等待中',
+  dispatching: '派送中',
+  running: '執行中',
+  paused: '已暫停',
+  throttled: '限流中',
+  completed: '已完成',
+  partial_success: '部分完成',
+  failed: '失敗',
+  cancelled: '已取消',
+  pending: '等待中',
+  fetching_index: '抓取索引',
+  fetching_detail: '抓取內容',
+  parsing: '解析中',
+  normalizing: '整理中',
+  writing_output: '輸出中',
+  done: '完成',
+  skipped: '略過',
+};
+
 function formatDateTime(value: string | null) {
   if (!value) {
     return '尚未更新';
@@ -44,8 +74,9 @@ function formatDateTime(value: string | null) {
 
 function formatEta(seconds: number | null) {
   if (!seconds || seconds <= 0) {
-    return '計算中';
+    return '系統計算中';
   }
+
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const remainingSeconds = seconds % 60;
@@ -56,6 +87,187 @@ function formatEta(seconds: number | null) {
     return `${minutes} 分 ${remainingSeconds} 秒`;
   }
   return `${remainingSeconds} 秒`;
+}
+
+function parseTimestamp(value: string | null) {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function formatDuration(durationMs: number) {
+  if (durationMs < 1000) {
+    return '少於 1 秒';
+  }
+
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours} 小時 ${minutes} 分 ${seconds} 秒`;
+  }
+  if (minutes > 0) {
+    return `${minutes} 分 ${seconds} 秒`;
+  }
+  return `${seconds} 秒`;
+}
+
+function formatStatusLabel(status: string) {
+  return STATUS_LABELS[status] ?? status;
+}
+
+function formatHealthLabel(status: CrawlSourceRecord['healthStatus']) {
+  if (status === 'healthy') {
+    return '正常';
+  }
+  if (status === 'degraded') {
+    return '延遲';
+  }
+  if (status === 'down') {
+    return '異常';
+  }
+  return '檢查中';
+}
+
+function describeWorkItemStep(workItem: CrawlWorkItem) {
+  const processed = workItem.itemsProcessed ?? 0;
+  const total = workItem.itemsTotal ?? 0;
+
+  if (workItem.currentStage === 'pending') {
+    return '等待工作器接手';
+  }
+  if (workItem.currentStage === 'fetching_index') {
+    return '下載法規資料總檔中';
+  }
+  if (workItem.currentStage === 'fetching_detail') {
+    return '抓取明細資料中';
+  }
+  if (workItem.currentStage === 'parsing') {
+    return '解析法規資料中';
+  }
+  if (workItem.currentStage === 'normalizing') {
+    return total > 0 ? `整理資料中（${processed}/${total}）` : '整理資料中';
+  }
+  if (workItem.currentStage === 'writing_output') {
+    return total > 0 ? `輸出法規快照中（${processed}/${total}）` : '輸出法規快照中';
+  }
+  if (workItem.currentStage === 'done') {
+    return workItem.lastMessage || '輸出完成';
+  }
+  if (workItem.currentStage === 'failed') {
+    return workItem.lastMessage || '執行失敗';
+  }
+  return formatStatusLabel(workItem.currentStage);
+}
+
+function describeTaskDuration(task: CrawlTaskSummary, nowTimestamp: number) {
+  const startedAt = parseTimestamp(task.startedAt);
+  if (!startedAt) {
+    return '尚未開始';
+  }
+
+  const finishedAt = parseTimestamp(task.finishedAt);
+  const endAt = finishedAt ?? nowTimestamp;
+  const prefix = finishedAt ? '總耗時' : '目前已執行';
+  return `${prefix} ${formatDuration(endAt - startedAt)}`;
+}
+
+function buildExecutionTimeline(detail: CrawlTaskDetail, task: CrawlTaskSummary, nowTimestamp: number): TimelineStep[] {
+  const workItemLookup = new Map(detail.workItems.map((workItem) => [workItem.id, workItem]));
+  const timelineEventTypes = new Set(['task-created', 'task-status', 'work-item-status']);
+  const orderedEvents = [...detail.recentEvents]
+    .filter((eventItem) => timelineEventTypes.has(eventItem.eventType))
+    .reverse();
+
+  const eventSteps = orderedEvents.map((eventItem, index) => {
+      const startedAt = parseTimestamp(eventItem.occurredAt) ?? nowTimestamp;
+      const nextStartedAt = parseTimestamp(orderedEvents[index + 1]?.occurredAt);
+      const finishedAt = parseTimestamp(task.finishedAt);
+      const endedAt = nextStartedAt ?? finishedAt ?? nowTimestamp;
+      const relatedWorkItem = eventItem.workItemId ? workItemLookup.get(eventItem.workItemId)?.label ?? null : null;
+      const isLatest = index === orderedEvents.length - 1;
+
+      let stateTone: TimelineStep['stateTone'] = 'done';
+      let stateLabel = '完成';
+      if (isLatest && !finishedAt) {
+        stateTone = 'running';
+        stateLabel = '進行中';
+      } else if (isLatest && task.status === 'failed') {
+        stateTone = 'failed';
+        stateLabel = '失敗';
+      } else if (isLatest && task.status === 'cancelled') {
+        stateTone = 'cancelled';
+        stateLabel = '已取消';
+      } else if (eventItem.level === 'error') {
+        stateTone = 'failed';
+        stateLabel = '失敗';
+      }
+
+      return {
+        id: eventItem.id,
+        title: eventItem.message,
+        context: relatedWorkItem ? `項目：${relatedWorkItem}` : '主任務',
+        workItemId: eventItem.workItemId ?? null,
+        startedAtLabel: formatDateTime(eventItem.occurredAt),
+        startedAtMs: startedAt,
+        durationLabel: `${stateTone === 'running' ? '已執行' : '耗時'} ${formatDuration(endedAt - startedAt)}`,
+        stateLabel,
+        stateTone,
+      };
+    });
+
+  const liveStateSteps = [...detail.workItems]
+    .sort((left, right) => {
+      const leftTime = parseTimestamp(left.startedAt) ?? Number.MAX_SAFE_INTEGER;
+      const rightTime = parseTimestamp(right.startedAt) ?? Number.MAX_SAFE_INTEGER;
+      return leftTime === rightTime ? left.sequenceNo - right.sequenceNo : leftTime - rightTime;
+    })
+    .filter((workItem) => {
+      const currentTitle = describeWorkItemStep(workItem);
+      const latestWorkItemEvent = [...eventSteps].reverse().find((step) => step.workItemId === workItem.id) ?? null;
+
+      if (!latestWorkItemEvent) {
+        return true;
+      }
+
+      if (['done', 'failed', 'skipped'].includes(workItem.status)) {
+        return false;
+      }
+
+      return latestWorkItemEvent.title !== currentTitle || latestWorkItemEvent.stateLabel !== '進行中';
+    })
+    .map((workItem) => {
+      const startedAt = parseTimestamp(workItem.startedAt) ?? parseTimestamp(task.startedAt) ?? nowTimestamp;
+      const finishedAt = parseTimestamp(workItem.finishedAt) ?? parseTimestamp(task.finishedAt) ?? nowTimestamp;
+      const isFinished = Boolean(workItem.finishedAt);
+      const stateTone: TimelineStep['stateTone'] = workItem.status === 'failed' ? 'failed' : isFinished ? 'done' : 'running';
+      return {
+        id: `live-${workItem.id}`,
+        title: describeWorkItemStep(workItem),
+        context: `項目：${workItem.label}`,
+        workItemId: workItem.id,
+        startedAtLabel: formatDateTime(workItem.startedAt ?? task.startedAt),
+        startedAtMs: startedAt,
+        durationLabel: `${isFinished ? '耗時' : '已執行'} ${formatDuration(finishedAt - startedAt)}`,
+        stateLabel: workItem.status === 'failed' ? '失敗' : isFinished ? '完成' : '進行中',
+        stateTone,
+      };
+    });
+
+  if (eventSteps.length === 0) {
+    return liveStateSteps;
+  }
+
+  return [...eventSteps, ...liveStateSteps].sort((left, right) => {
+    if (left.startedAtMs === right.startedAtMs) {
+      return left.id.localeCompare(right.id);
+    }
+    return left.startedAtMs - right.startedAtMs;
+  });
 }
 
 function mapProgressStatus(status: CrawlTaskSummary['status'] | CrawlWorkItem['status']) {
@@ -69,6 +281,16 @@ function mapProgressStatus(status: CrawlTaskSummary['status'] | CrawlWorkItem['s
     return 'idle' as const;
   }
   return 'running' as const;
+}
+
+function sourceIcon(sourceId: SourceId, size = 18) {
+  if (sourceId === 'moj-laws') {
+    return <FileText size={size} />;
+  }
+  if (sourceId === 'judicial-sites') {
+    return <Database size={size} />;
+  }
+  return <Scale size={size} />;
 }
 
 function buildInitialFormValues(source: CrawlSourceRecord | null) {
@@ -130,7 +352,7 @@ function artifactLabel(artifact: CrawlArtifact) {
     case 'judgment_document_snapshot':
       return '裁判資料 Markdown';
     case 'batch_manifest':
-      return '批次 Manifest';
+      return '批次清單';
     default:
       return artifact.artifactKind;
   }
@@ -140,50 +362,73 @@ export function ScrapingDashboard() {
   const [sources, setSources] = useState<CrawlSourceRecord[]>([]);
   const [tasks, setTasks] = useState<CrawlTaskSummary[]>([]);
   const [taskDetails, setTaskDetails] = useState<Record<string, CrawlTaskDetail>>({});
-  const [expandedTaskIds, setExpandedTaskIds] = useState<string[]>([]);
-  const [expandedWorkItemIds, setExpandedWorkItemIds] = useState<string[]>([]);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [selectedSourceId, setSelectedSourceId] = useState<SourceId | null>(null);
   const [formValues, setFormValues] = useState<Record<string, FieldValue>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [connectionState, setConnectionState] = useState<'connecting' | 'live' | 'offline'>('connecting');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [nowTimestamp, setNowTimestamp] = useState(() => Date.now());
 
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === selectedSourceId) ?? null,
     [selectedSourceId, sources],
   );
 
-  const taskTotals = useMemo(
-    () =>
-      tasks.reduce(
-        (accumulator, task) => {
-          accumulator.total += 1;
-          if (['running', 'dispatching', 'throttled'].includes(task.status)) {
-            accumulator.running += 1;
-          }
-          if (task.status === 'completed') {
-            accumulator.completed += 1;
-          }
-          if (['failed', 'partial_success'].includes(task.status)) {
-            accumulator.attention += 1;
-          }
-          return accumulator;
-        },
-        { total: 0, running: 0, completed: 0, attention: 0 },
-      ),
-    [tasks],
+  const activeTask = useMemo(
+    () => tasks.find((task) => task.id === activeTaskId) ?? null,
+    [activeTaskId, tasks],
   );
 
-  const refreshSources = useCallback(async () => {
-    const nextSources = await api.listSources();
+  const activeTaskDetail = useMemo(
+    () => (activeTask ? taskDetails[activeTask.id] ?? null : null),
+    [activeTask, taskDetails],
+  );
+
+  const activeErrorMessage = useMemo(() => {
+    if (!activeTask) {
+      return null;
+    }
+    const failedItem = activeTaskDetail?.workItems.find((workItem) => workItem.status === 'failed' && workItem.lastMessage);
+    if (failedItem?.lastMessage) {
+      return failedItem.lastMessage;
+    }
+    if (['failed', 'partial_success'].includes(activeTask.status) && activeTask.summary) {
+      return activeTask.summary;
+    }
+    return null;
+  }, [activeTask, activeTaskDetail]);
+
+  const executionTimeline = useMemo(() => {
+    if (!activeTask || !activeTaskDetail) {
+      return [];
+    }
+    return buildExecutionTimeline(activeTaskDetail, activeTask, nowTimestamp);
+  }, [activeTask, activeTaskDetail, nowTimestamp]);
+
+  const syncSources = useCallback(async (includeHealthRefresh = false) => {
+    const nextSources = includeHealthRefresh
+      ? await api.refreshSources().catch(() => api.listSources())
+      : await api.listSources();
+
     setSources(nextSources);
-    setSelectedSourceId((current) => current ?? nextSources[0]?.id ?? null);
+    setSelectedSourceId((current) => {
+      if (current && nextSources.some((source) => source.id === current)) {
+        return current;
+      }
+      return nextSources[0]?.id ?? null;
+    });
   }, []);
 
   const refreshTasks = useCallback(async () => {
     const nextTasks = await api.listTasks();
     setTasks(nextTasks);
+    setActiveTaskId((current) => {
+      if (current && nextTasks.some((task) => task.id === current)) {
+        return current;
+      }
+      return nextTasks[0]?.id ?? null;
+    });
   }, []);
 
   const loadTaskDetail = useCallback(async (taskId: string, force = false) => {
@@ -200,16 +445,13 @@ export function ScrapingDashboard() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const [nextSources, nextTasks] = await Promise.all([api.listSources(), api.listTasks()]);
-      setSources(nextSources);
-      setSelectedSourceId((current) => current ?? nextSources[0]?.id ?? null);
-      setTasks(nextTasks);
+      await Promise.all([syncSources(true), refreshTasks()]);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '無法載入第一頁資料');
+      setErrorMessage(error instanceof Error ? error.message : '無法載入頁面資料');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [refreshTasks, syncSources]);
 
   useEffect(() => {
     setFormValues(buildInitialFormValues(selectedSource));
@@ -220,24 +462,30 @@ export function ScrapingDashboard() {
   }, [refreshAll]);
 
   useEffect(() => {
+    setNowTimestamp(Date.now());
+  }, [activeTaskId]);
+
+  useEffect(() => {
+    if (activeTaskId) {
+      void loadTaskDetail(activeTaskId);
+    }
+  }, [activeTaskId, loadTaskDetail]);
+
+  useEffect(() => {
     const eventSource = api.createTaskStream();
-    setConnectionState('connecting');
-    eventSource.onopen = () => setConnectionState('live');
-    eventSource.onerror = () => setConnectionState('offline');
     eventSource.onmessage = (event) => {
       const payload = JSON.parse(event.data) as { kind: string; taskId?: string };
       if (payload.kind === 'heartbeat') {
-        setConnectionState('live');
         return;
       }
 
       startTransition(() => {
         void refreshTasks();
-        if (payload.taskId && expandedTaskIds.includes(payload.taskId)) {
+        if (payload.taskId && payload.taskId === activeTaskId) {
           void loadTaskDetail(payload.taskId, true);
         }
         if (payload.kind === 'source-updated') {
-          void refreshSources();
+          void syncSources(false);
         }
       });
     };
@@ -245,7 +493,41 @@ export function ScrapingDashboard() {
     return () => {
       eventSource.close();
     };
-  }, [expandedTaskIds, loadTaskDetail, refreshSources, refreshTasks]);
+  }, [activeTaskId, loadTaskDetail, refreshTasks, syncSources]);
+
+  useEffect(() => {
+    if (!activeTask || activeTask.finishedAt) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      setNowTimestamp(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [activeTask]);
+
+  useEffect(() => {
+    const taskTimer = window.setInterval(() => {
+      void refreshTasks();
+      if (activeTaskId) {
+        void loadTaskDetail(activeTaskId, true);
+      }
+    }, AUTO_TASK_SYNC_MS);
+
+    const sourceTimer = window.setInterval(() => {
+      void syncSources(true).catch((error: unknown) => {
+        setErrorMessage(error instanceof Error ? error.message : '來源同步失敗');
+      });
+    }, AUTO_SOURCE_SYNC_MS);
+
+    return () => {
+      window.clearInterval(taskTimer);
+      window.clearInterval(sourceTimer);
+    };
+  }, [activeTaskId, loadTaskDetail, refreshTasks, syncSources]);
 
   async function handleCreateTask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -263,7 +545,7 @@ export function ScrapingDashboard() {
       const createdTask = await api.createTask(request);
       setTasks((current) => [createdTask, ...current.filter((task) => task.id !== createdTask.id)]);
       setTaskDetails((current) => ({ ...current, [createdTask.id]: createdTask }));
-      setExpandedTaskIds((current) => (current.includes(createdTask.id) ? current : [createdTask.id, ...current]));
+      setActiveTaskId(createdTask.id);
       setFormValues(buildInitialFormValues(selectedSource));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '建立任務失敗');
@@ -290,62 +572,17 @@ export function ScrapingDashboard() {
     }
   }
 
-  function toggleTaskExpansion(taskId: string) {
-    setExpandedTaskIds((current) => {
-      if (current.includes(taskId)) {
-        return current.filter((id) => id !== taskId);
-      }
-      void loadTaskDetail(taskId, true);
-      return [...current, taskId];
-    });
-  }
-
-  function toggleWorkItemExpansion(workItemId: string) {
-    setExpandedWorkItemIds((current) =>
-      current.includes(workItemId) ? current.filter((id) => id !== workItemId) : [...current, workItemId],
-    );
-  }
-
   function updateFormValue(name: string, value: FieldValue) {
     setFormValues((current) => ({ ...current, [name]: value }));
   }
 
+  function selectTask(taskId: string) {
+    setActiveTaskId(taskId);
+    void loadTaskDetail(taskId);
+  }
+
   return (
     <div className={clsx(styles.dashboard, 'animate-fade-in')}>
-      <div className={styles.header}>
-        <div>
-          <h2 className={styles.title}>網頁爬取管理平台</h2>
-          <p className={styles.subtitle}>正式拆分後的第一頁控制台，專注於來源爬取、任務佇列、展開式進度檢視與 JSON/MD 輸出。</p>
-        </div>
-        <div className={styles.actions}>
-          <Button variant="secondary" icon={<RefreshCw size={18} />} onClick={() => void refreshAll()}>
-            全域重整
-          </Button>
-          <Button
-            variant="secondary"
-            icon={<Gauge size={18} />}
-            onClick={() => {
-              void api.refreshSources().then(setSources).catch((error: Error) => setErrorMessage(error.message));
-            }}
-          >
-            檢查來源健康
-          </Button>
-        </div>
-      </div>
-
-      <div className={styles.statusBar}>
-        <span className={clsx(styles.statusDot, styles[`status-${connectionState}`])} />
-        <span>事件串流：{connectionState === 'live' ? '即時連線中' : connectionState === 'connecting' ? '連線中' : '離線'}</span>
-        <span className={styles.statusDivider}>•</span>
-        <span>任務總數 {taskTotals.total}</span>
-        <span className={styles.statusDivider}>•</span>
-        <span>執行中 {taskTotals.running}</span>
-        <span className={styles.statusDivider}>•</span>
-        <span>已完成 {taskTotals.completed}</span>
-        <span className={styles.statusDivider}>•</span>
-        <span>需關注 {taskTotals.attention}</span>
-      </div>
-
       {errorMessage && (
         <div className={styles.errorBanner}>
           <AlertTriangle size={16} />
@@ -355,236 +592,277 @@ export function ScrapingDashboard() {
 
       <div className={styles.topGrid}>
         <Card className={styles.createTaskCard}>
-          <CardHeader>
-            <CardTitle>
-              <ListChecks size={20} /> 建立新爬取任務
-            </CardTitle>
+          <CardHeader className={styles.sectionHeader}>
+            <div className={styles.headerBlock}>
+              <CardTitle>
+                <FileText size={18} /> 建立新任務
+              </CardTitle>
+              <p className={styles.cardCaption}>先選來源，再填最必要的欄位。建立後系統會自動排入佇列並持續更新畫面。</p>
+            </div>
           </CardHeader>
           <CardContent>
-            <form className={styles.taskForm} onSubmit={handleCreateTask}>
-              <label className={styles.fieldGroup}>
-                <span className={styles.fieldLabel}>來源</span>
-                <select className={styles.select} value={selectedSourceId ?? ''} onChange={(event) => setSelectedSourceId(event.target.value as SourceId)}>
+            {sources.length === 0 ? (
+              <div className={styles.emptyHint}>目前還沒有可用來源。</div>
+            ) : (
+              <>
+                <div className={styles.sourcePicker}>
                   {sources.map((source) => (
-                    <option key={source.id} value={source.id}>
-                      {source.name}
-                    </option>
+                    <button
+                      key={source.id}
+                      type="button"
+                      className={clsx(styles.sourceOption, selectedSourceId === source.id && styles.sourceOptionActive)}
+                      onClick={() => setSelectedSourceId(source.id)}
+                    >
+                      <div className={styles.sourceOptionIcon}>{sourceIcon(source.id)}</div>
+                      <div className={styles.sourceOptionBody}>
+                        <div className={styles.sourceOptionTop}>
+                          <strong>{source.name}</strong>
+                          <span className={clsx(styles.sourceHealthPill, styles[`health-${source.healthStatus}`])}>
+                            {formatHealthLabel(source.healthStatus)}
+                          </span>
+                        </div>
+                        <p>{source.description}</p>
+                      </div>
+                    </button>
                   ))}
-                </select>
-              </label>
+                </div>
 
-              {selectedSource?.taskBuilderFields.map((field) => (
-                <label key={field.name} className={styles.fieldGroup}>
-                  <span className={styles.fieldLabel}>{field.label}</span>
-                  {field.type === 'checkbox' ? (
-                    <span className={styles.checkboxRow}>
-                      <input type="checkbox" checked={Boolean(formValues[field.name])} onChange={(event) => updateFormValue(field.name, event.target.checked)} />
-                      <span>{field.description ?? '啟用此設定'}</span>
-                    </span>
-                  ) : (
-                    <input
-                      className={styles.input}
-                      type={field.type}
-                      required={field.required}
-                      placeholder={field.placeholder}
-                      value={String(formValues[field.name] ?? '')}
-                      onChange={(event) => updateFormValue(field.name, event.target.value)}
-                    />
-                  )}
-                  {field.description && field.type !== 'checkbox' && <small className={styles.fieldHint}>{field.description}</small>}
-                </label>
-              ))}
+                {selectedSource && (
+                  <div className={styles.sourceGuide}>
+                    <span className={styles.fieldLabel}>目前來源說明</span>
+                    <strong>{selectedSource.name}</strong>
+                    <p>{selectedSource.notes}</p>
+                  </div>
+                )}
 
-              <div className={styles.formActions}>
-                <Button type="submit" variant="primary" icon={<CirclePlay size={18} />} disabled={isSubmitting || !selectedSourceId}>
-                  {isSubmitting ? '建立中...' : '建立並排入佇列'}
-                </Button>
-              </div>
-            </form>
+                <form className={styles.taskForm} onSubmit={handleCreateTask}>
+                  {selectedSource?.taskBuilderFields.map((field) => {
+                    if (field.type === 'checkbox') {
+                      const enabled = Boolean(formValues[field.name]);
+                      return (
+                        <div key={field.name} className={styles.fieldGroup}>
+                          <span className={styles.fieldLabel}>{field.label}</span>
+                          <button
+                            type="button"
+                            className={clsx(styles.toggleButton, enabled && styles.toggleButtonActive)}
+                            aria-pressed={enabled}
+                            onClick={() => updateFormValue(field.name, !enabled)}
+                          >
+                            <span className={clsx(styles.toggleTrack, enabled && styles.toggleTrackActive)}>
+                              <span className={clsx(styles.toggleThumb, enabled && styles.toggleThumbActive)} />
+                            </span>
+                            <span className={styles.toggleContent}>
+                              <span className={styles.toggleTitle}>{enabled ? '已啟用精準比對' : '未啟用精準比對'}</span>
+                              {field.description && <span className={styles.toggleDescription}>{field.description}</span>}
+                            </span>
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <label key={field.name} className={styles.fieldGroup}>
+                        <span className={styles.fieldLabel}>{field.label}</span>
+                        <input
+                          className={styles.input}
+                          type={field.type}
+                          required={field.required}
+                          placeholder={field.placeholder}
+                          value={String(formValues[field.name] ?? '')}
+                          onChange={(event) => updateFormValue(field.name, event.target.value)}
+                        />
+                        {field.description && <small className={styles.fieldHint}>{field.description}</small>}
+                      </label>
+                    );
+                  })}
+
+                  <div className={styles.formActions}>
+                    <Button type="submit" variant="primary" icon={<CirclePlay size={18} />} disabled={isSubmitting || !selectedSourceId}>
+                      {isSubmitting ? '建立中...' : '建立並開始執行'}
+                    </Button>
+                  </div>
+                </form>
+              </>
+            )}
           </CardContent>
         </Card>
-
-        <div className={styles.sourcesGrid}>
-          {sources.map((source) => (
-            <Card key={source.id} variant="glow">
-              <CardHeader>
-                <CardTitle>
-                  {source.id === 'moj-laws' ? <FileText size={20} /> : source.id === 'judicial-sites' ? <Database size={20} /> : <Scale size={20} />}
-                  {source.name}
-                </CardTitle>
-                <span className={clsx(styles.badge, styles[`health-${source.healthStatus}`])}>{source.healthStatus}</span>
-              </CardHeader>
-              <CardContent>
-                <div className={styles.sourceStats}>
-                  <div className={styles.statBox}>
-                    <span className={styles.statLabel}>請求狀態</span>
-                    <span className={styles.statValue}>{source.rateLimitStatus}</span>
-                  </div>
-                  <div className={styles.statBox}>
-                    <span className={styles.statLabel}>今日請求數</span>
-                    <span className={styles.statValue}>{source.todayRequestCount}</span>
-                  </div>
-                  <div className={styles.statBox}>
-                    <span className={styles.statLabel}>最後檢查</span>
-                    <span className={styles.statValueSmall}>{formatDateTime(source.lastCheckedAt)}</span>
-                  </div>
-                  <div className={styles.statBox}>
-                    <span className={styles.statLabel}>備註</span>
-                    <span className={styles.statValueSmall}>{source.notes}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
       </div>
 
       <Card className={styles.tasksCard}>
-        <CardHeader>
-          <CardTitle>當前爬取隊列與進度</CardTitle>
-          <Button variant="ghost" size="sm" icon={<RefreshCw size={16} />} onClick={() => void refreshTasks()}>
-            重整列表
-          </Button>
+        <CardHeader className={styles.sectionHeader}>
+          <div className={styles.headerBlock}>
+            <CardTitle>任務進度</CardTitle>
+            <p className={styles.cardCaption}>左側選任務，右側只顯示目前最重要的進度、錯誤與輸出結果。</p>
+          </div>
         </CardHeader>
-        <div className={styles.taskList}>
-          {isLoading && <div className={styles.emptyState}>載入中...</div>}
-          {!isLoading && tasks.length === 0 && <div className={styles.emptyState}>尚未建立任何爬取任務。</div>}
-          {tasks.map((task) => {
-            const isExpanded = expandedTaskIds.includes(task.id);
-            const detail = taskDetails[task.id];
-            return (
-              <div key={task.id} className={styles.taskCard}>
-                <button type="button" className={styles.taskSummary} onClick={() => toggleTaskExpansion(task.id)}>
-                  <div className={styles.expandIcon}>{isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}</div>
-                  <div className={styles.taskMetaColumn}>
-                    <div className={styles.taskHeadline}>
-                      <span className={styles.taskName}>{task.targets.map((target) => target.label).join('、')}</span>
-                      <span className={clsx(styles.taskStatusBadge, styles[`task-${task.status}`])}>{task.status}</span>
+        <CardContent className={styles.taskWorkspace}>
+          <div className={styles.taskRail}>
+            {isLoading && <div className={styles.emptyState}>載入中...</div>}
+            {!isLoading && tasks.length === 0 && <div className={styles.emptyState}>尚未建立任何爬取任務。</div>}
+            {tasks.map((task) => {
+              const isActive = task.id === activeTaskId;
+
+              return (
+                <button
+                  key={task.id}
+                  type="button"
+                  className={clsx(styles.taskRailItem, isActive && styles.taskRailItemActive)}
+                  onClick={() => selectTask(task.id)}
+                >
+                  <div className={styles.taskRailTop}>
+                    <strong className={styles.taskRailTitle}>{task.targets.map((target) => target.label).join('、')}</strong>
+                    <div className={styles.taskRailStatusGroup}>
+                      <span className={clsx(styles.taskStatusBadge, styles[`task-${task.status}`])}>
+                        {formatStatusLabel(task.status)}
+                      </span>
+                      <span className={styles.taskRailDuration}>{describeTaskDuration(task, nowTimestamp)}</span>
                     </div>
-                    <div className={styles.taskSubline}>
-                      <span>{task.sourceName}</span>
-                      <span>最後更新：{formatDateTime(task.updatedAt)}</span>
-                      <span>ETA：{formatEta(task.etaSeconds)}</span>
-                    </div>
                   </div>
-                  <div className={styles.taskProgressColumn}>
-                    <ProgressBar progress={task.overallProgress} status={mapProgressStatus(task.status)} label={`${task.completedWorkItems}/${task.totalWorkItems} 已完成`} />
+
+                  <div className={styles.taskRailMetaRow}>
+                    <span className={styles.taskUpdatedAt}>{formatDateTime(task.updatedAt)}</span>
+                    <span className={styles.taskRailSource}>{task.sourceName}</span>
                   </div>
-                  <div className={styles.taskActionColumn} onClick={(event) => event.stopPropagation()}>
-                    {['queued', 'running', 'dispatching', 'throttled'].includes(task.status) && (
-                      <Button variant="ghost" size="sm" icon={<CirclePause size={16} />} onClick={() => void handleTaskAction(task.id, 'pause')} />
-                    )}
-                    {['paused', 'failed', 'partial_success'].includes(task.status) && (
-                      <Button variant="ghost" size="sm" icon={<CirclePlay size={16} />} onClick={() => void handleTaskAction(task.id, 'resume')} />
-                    )}
-                    {task.failedWorkItems > 0 && (
-                      <Button variant="ghost" size="sm" icon={<RotateCcw size={16} />} onClick={() => void handleTaskAction(task.id, 'retry')} />
-                    )}
-                    <Button variant="ghost" size="sm" icon={<FileDown size={16} />} onClick={() => window.open(api.manifestDownloadUrl(task.id), '_blank', 'noopener,noreferrer')} />
-                    {!['cancelled', 'completed'].includes(task.status) && (
-                      <Button variant="ghost" size="sm" icon={<XCircle size={16} />} onClick={() => void handleTaskAction(task.id, 'cancel')} />
-                    )}
+
+                  <div className={styles.taskRailFoot}>
+                    <span>{`${task.completedWorkItems}/${task.totalWorkItems} 已完成`}</span>
+                    <span>{`${Math.round(task.overallProgress)}%`}</span>
                   </div>
+                  <ProgressBar
+                    progress={task.overallProgress}
+                    status={mapProgressStatus(task.status)}
+                    label={`${task.completedWorkItems}/${task.totalWorkItems} 已完成`}
+                  />
                 </button>
+              );
+            })}
+          </div>
 
-                {isExpanded && detail && (
-                  <div className={styles.taskDetailPanel}>
-                    <div className={styles.detailGrid}>
-                      <div className={styles.detailSection}>
-                        <h4>任務摘要</h4>
-                        <ul className={styles.keyValueList}>
-                          <li><span>狀態</span><strong>{detail.status}</strong></li>
-                          <li><span>已完成</span><strong>{detail.completedWorkItems}</strong></li>
-                          <li><span>失敗</span><strong>{detail.failedWorkItems}</strong></li>
-                          <li><span>警告</span><strong>{detail.warningCount}</strong></li>
-                          <li><span>開始時間</span><strong>{formatDateTime(detail.startedAt)}</strong></li>
-                        </ul>
-                      </div>
+          <div className={styles.taskPreview}>
+            {!activeTask && !isLoading && <div className={styles.emptyPreview}>建立任務後，這裡會顯示詳細進度與輸出檔案。</div>}
 
-                      <div className={styles.detailSection}>
-                        <h4>最近事件</h4>
-                        <div className={styles.eventList}>
-                          {detail.recentEvents.slice(0, 8).map((eventItem) => (
-                            <div key={eventItem.id} className={clsx(styles.eventItem, styles[`event-${eventItem.level}`])}>
-                              <div>{eventItem.message}</div>
-                              <small>{formatDateTime(eventItem.occurredAt)}</small>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className={styles.detailSection}>
-                        <h4>輸出檔案</h4>
-                        <div className={styles.artifactList}>
-                          {detail.artifacts.slice(0, 10).map((artifact) => (
-                            <button key={artifact.id} type="button" className={styles.artifactItem} onClick={() => window.open(api.artifactDownloadUrl(artifact.id), '_blank', 'noopener,noreferrer')}>
-                              <div>
-                                <strong>{artifactLabel(artifact)}</strong>
-                                <small>{artifact.fileName}</small>
-                              </div>
-                              <Download size={16} />
-                            </button>
-                          ))}
-                          {detail.artifacts.length === 0 && <div className={styles.emptyHint}>尚未輸出 artifact。</div>}
-                        </div>
-                      </div>
+            {activeTask && (
+              <>
+                <div className={styles.previewHeader}>
+                  <div className={styles.previewHeading}>
+                    <div className={styles.previewTitleRow}>
+                      <h3 className={styles.previewTitle}>{activeTask.targets.map((target) => target.label).join('、')}</h3>
+                      <span className={clsx(styles.taskStatusBadge, styles[`task-${activeTask.status}`])}>
+                        {formatStatusLabel(activeTask.status)}
+                      </span>
                     </div>
+                    <p className={styles.previewSubline}>
+                      {activeTask.sourceName} · 開始時間 {formatDateTime(activeTask.startedAt)} · {describeTaskDuration(activeTask, nowTimestamp)}
+                      {!activeTask.finishedAt && ` · ETA ${formatEta(activeTask.etaSeconds)}`}
+                    </p>
+                  </div>
 
-                    <div className={styles.workItemSection}>
-                      <h4>Work Items</h4>
-                      <div className={styles.workItemList}>
-                        {detail.workItems.map((workItem) => {
-                          const isWorkItemExpanded = expandedWorkItemIds.includes(workItem.id);
-                          return (
-                            <div key={workItem.id} className={styles.workItemCard}>
-                              <button type="button" className={styles.workItemSummary} onClick={() => toggleWorkItemExpansion(workItem.id)}>
-                                <div className={styles.expandIcon}>{isWorkItemExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</div>
-                                <div className={styles.workItemMeta}>
-                                  <div className={styles.workItemTitleRow}>
-                                    <strong>{workItem.label}</strong>
-                                    <span className={clsx(styles.taskStatusBadge, styles[`task-${workItem.status}`])}>{workItem.status}</span>
-                                  </div>
-                                  <div className={styles.workItemSubtitle}>
-                                    <span>階段：{workItem.currentStage}</span>
-                                    <span>訊息：{workItem.lastMessage || '—'}</span>
-                                  </div>
-                                </div>
-                                <div className={styles.workItemProgressWrap}>
-                                  <ProgressBar progress={workItem.progress} status={mapProgressStatus(workItem.status)} label={`${workItem.itemsProcessed}/${workItem.itemsTotal || '?'} 筆`} />
-                                </div>
-                              </button>
+                  <div className={styles.previewActions}>
+                    {['queued', 'running', 'dispatching', 'throttled'].includes(activeTask.status) && (
+                      <Button variant="secondary" size="sm" icon={<CirclePause size={16} />} onClick={() => void handleTaskAction(activeTask.id, 'pause')}>
+                        暫停
+                      </Button>
+                    )}
+                    {activeTask.status === 'paused' && (
+                      <Button variant="secondary" size="sm" icon={<CirclePlay size={16} />} onClick={() => void handleTaskAction(activeTask.id, 'resume')}>
+                        繼續
+                      </Button>
+                    )}
+                    {activeTask.failedWorkItems > 0 && (
+                      <Button variant="secondary" size="sm" icon={<RefreshCcw size={16} />} onClick={() => void handleTaskAction(activeTask.id, 'retry')}>
+                        重試失敗項目
+                      </Button>
+                    )}
+                    {!['cancelled', 'completed', 'failed'].includes(activeTask.status) && (
+                      <Button variant="danger" size="sm" icon={<XCircle size={16} />} onClick={() => void handleTaskAction(activeTask.id, 'cancel')}>
+                        取消
+                      </Button>
+                    )}
+                  </div>
+                </div>
 
-                              {isWorkItemExpanded && (
-                                <div className={styles.workItemDetail}>
-                                  <ul className={styles.keyValueList}>
-                                    <li><span>Current Stage</span><strong>{workItem.currentStage}</strong></li>
-                                    <li><span>Source Locator</span><strong>{workItem.sourceLocator ?? '—'}</strong></li>
-                                    <li><span>Cursor</span><strong>{workItem.cursor ? JSON.stringify(workItem.cursor) : '—'}</strong></li>
-                                    <li><span>Warnings</span><strong>{workItem.warningCount}</strong></li>
-                                    <li><span>Errors</span><strong>{workItem.errorCount}</strong></li>
-                                    <li><span>Started</span><strong>{formatDateTime(workItem.startedAt)}</strong></li>
-                                  </ul>
-                                  <div className={styles.inlineArtifacts}>
-                                    {workItem.artifacts.map((artifact) => (
-                                      <button key={artifact.id} type="button" className={styles.inlineArtifact} onClick={() => window.open(api.artifactDownloadUrl(artifact.id), '_blank', 'noopener,noreferrer')}>
-                                        <FileText size={14} />
-                                        <span>{artifact.fileName}</span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                {activeErrorMessage && (
+                  <div className={styles.inlineError}>
+                    <AlertTriangle size={16} />
+                    <span>{activeErrorMessage}</span>
                   </div>
                 )}
-              </div>
-            );
-          })}
-        </div>
+
+                {!activeTaskDetail && <div className={styles.emptyPreview}>讀取任務詳情中...</div>}
+
+                {activeTaskDetail && (
+                  <div className={styles.previewBody}>
+                    <div className={styles.workstream}>
+                      <div className={styles.workstreamHeader}>
+                        <h4>執行明細</h4>
+                        <span>{executionTimeline.length} 個步驟</span>
+                      </div>
+
+                      {executionTimeline.length === 0 && <div className={styles.emptyHint}>尚無執行紀錄。</div>}
+
+                      <div className={styles.timelineList}>
+                        {executionTimeline.map((step, index) => (
+                          <article key={step.id} className={clsx(styles.timelineItem, styles[`timeline-${step.stateTone}`])}>
+                            <div className={styles.timelineIndex}>{index + 1}</div>
+                            <div className={styles.timelineBody}>
+                              <div className={styles.timelineTop}>
+                                <div className={styles.timelineTitleRow}>
+                                    <strong className={styles.timelineTitleText}>{step.title}</strong>
+                                  <span className={clsx(styles.timelineState, styles[`timelineState-${step.stateTone}`])}>
+                                    {step.stateLabel}
+                                  </span>
+                                </div>
+                                <span className={styles.timelineDuration}>{step.durationLabel}</span>
+                              </div>
+                              <div className={styles.timelineMeta}>
+                                <span>開始：{step.startedAtLabel}</span>
+                                {step.context && <span>{step.context}</span>}
+                              </div>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+
+                    <aside className={styles.artifactPanel}>
+                      <div className={styles.artifactHeader}>
+                        <h4>輸出檔案</h4>
+                        {activeTaskDetail.artifacts.length > 0 && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={<Download size={16} />}
+                            onClick={() => window.open(api.manifestDownloadUrl(activeTask.id), '_blank', 'noopener,noreferrer')}
+                          >
+                            Manifest
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className={styles.artifactScroller}>
+                        {activeTaskDetail.artifacts.length === 0 && <div className={styles.emptyHint}>尚未輸出檔案。</div>}
+                        {activeTaskDetail.artifacts.map((artifact) => (
+                          <button
+                            key={artifact.id}
+                            type="button"
+                            className={styles.artifactItem}
+                            onClick={() => window.open(api.artifactDownloadUrl(artifact.id), '_blank', 'noopener,noreferrer')}
+                          >
+                            <div>
+                              <strong>{artifactLabel(artifact)}</strong>
+                              <small>{artifact.fileName}</small>
+                            </div>
+                            <Download size={16} />
+                          </button>
+                        ))}
+                      </div>
+                    </aside>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </CardContent>
       </Card>
     </div>
   );
