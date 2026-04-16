@@ -38,8 +38,10 @@ export function useArtifactPreview() {
     setIsLoading(false);
   }, []);
 
-  const downloadArtifact = useCallback((artifactId: string) => {
-    window.open(api.artifactDownloadUrl(artifactId), '_blank', 'noopener,noreferrer');
+  const downloadArtifact = useCallback((artifactId: string, fileName: string) => {
+    void api.downloadArtifact(artifactId, fileName).catch((error) => {
+      window.alert(error instanceof Error ? `下載檔案失敗：${error.message}` : '下載檔案失敗');
+    });
   }, []);
 
   return {

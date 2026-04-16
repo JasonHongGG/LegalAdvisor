@@ -9,7 +9,7 @@ import { createAttachmentDisposition } from './utils.js';
 export function createApp(application: CrawlerApplicationFacade) {
   const app = express();
 
-  app.use(cors());
+  app.use(cors({ exposedHeaders: ['Content-Disposition'] }));
   app.use(express.json({ limit: '2mb' }));
 
   app.get('/api/health', (_request, response) => {

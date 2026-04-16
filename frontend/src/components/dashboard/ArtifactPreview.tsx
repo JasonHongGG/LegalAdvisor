@@ -14,7 +14,7 @@ type ArtifactPreviewProps = {
   errorMessage: string | null;
   preview: ArtifactPreviewDto | null;
   onClose: () => void;
-  onDownload: (artifactId: string) => void;
+  onDownload: (artifactId: string, fileName: string) => void;
 };
 
 export function ArtifactPreview({ open, isLoading, errorMessage, preview, onClose, onDownload }: ArtifactPreviewProps) {
@@ -49,7 +49,7 @@ export function ArtifactPreview({ open, isLoading, errorMessage, preview, onClos
         <div className={styles.actions}>
           {preview && (
             <Tooltip content="下載這份檔案">
-              <IconButton label="下載檔案" size="sm" onClick={() => onDownload(preview.artifact.id)}>
+              <IconButton label="下載檔案" size="sm" onClick={() => onDownload(preview.artifact.id, preview.artifact.fileName)}>
                 <Download size={16} />
               </IconButton>
             </Tooltip>

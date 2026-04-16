@@ -25,18 +25,30 @@ function artifactAccentClass(artifactKind: ArtifactDto['artifactKind']) {
 }
 
 export function ArtifactPanel({ taskId, artifacts, activeArtifactId, onOpenPreview }: ArtifactPanelProps) {
+  const handleDownloadManifest = () => {
+    void api.downloadManifest(taskId).catch((error) => {
+      window.alert(error instanceof Error ? `下載 manifest 失敗：${error.message}` : '下載 manifest 失敗');
+    });
+  };
+
+  const handleDownloadArchive = () => {
+    void api.downloadTaskArchive(taskId).catch((error) => {
+      window.alert(error instanceof Error ? `下載全部檔案失敗：${error.message}` : '下載全部檔案失敗');
+    });
+  };
+
   return (
     <aside className={styles.panel}>
       <div className={styles.header}>
         <h4 className={styles.title}>輸出檔案</h4>
         <div className={styles.actions}>
           <Tooltip content="下載本次任務的 manifest">
-            <IconButton label="下載 manifest" size="sm" disabled={artifacts.length === 0} onClick={() => window.open(api.manifestDownloadUrl(taskId), '_blank', 'noopener,noreferrer')}>
+            <IconButton label="下載 manifest" size="sm" disabled={artifacts.length === 0} onClick={handleDownloadManifest}>
               <Download size={16} />
             </IconButton>
           </Tooltip>
           <Tooltip content="下載本次任務全部輸出檔案（ZIP）">
-            <IconButton label="下載全部檔案" size="sm" disabled={artifacts.length === 0} onClick={() => window.open(api.taskArchiveDownloadUrl(taskId), '_blank', 'noopener,noreferrer')}>
+            <IconButton label="下載全部檔案" size="sm" disabled={artifacts.length === 0} onClick={handleDownloadArchive}>
               <Archive size={16} />
             </IconButton>
           </Tooltip>
