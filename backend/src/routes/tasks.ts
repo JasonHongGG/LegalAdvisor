@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { EventBus } from '../services/eventBus.js';
 import type { TaskService } from '../services/taskService.js';
+import { createAttachmentDisposition } from '../utils.js';
 
 export function createTaskRouter(taskService: TaskService, eventBus: EventBus) {
   const router = Router();
@@ -70,8 +71,19 @@ export function createTaskRouter(taskService: TaskService, eventBus: EventBus) {
     try {
       const manifest = await taskService.downloadManifest(request.params.taskId);
       response.setHeader('Content-Type', manifest.contentType);
-      response.setHeader('Content-Disposition', `attachment; filename="${manifest.fileName}"`);
+      response.setHeader('Content-Disposition', createAttachmentDisposition(manifest.fileName));
       response.send(manifest.buffer);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/:taskId/artifacts/archive/download', async (request, response, next) => {
+    try {
+      const archive = await taskService.downloadTaskArchive(request.params.taskId);
+      response.setHeader('Content-Type', archive.contentType);
+      response.setHeader('Content-Disposition', createAttachmentDisposition(archive.fileName));
+      response.send(archive.buffer);
     } catch (error) {
       next(error);
     }

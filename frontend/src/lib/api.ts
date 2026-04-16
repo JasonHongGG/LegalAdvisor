@@ -1,4 +1,11 @@
-import type { CrawlSourceRecord, CrawlTaskDetail, CrawlTaskSummary, CreateTaskRequest, TaskControlResponse } from '@legaladvisor/shared';
+import type {
+  ArtifactPreviewPayload,
+  CrawlSourceRecord,
+  CrawlTaskDetail,
+  CrawlTaskSummary,
+  CreateTaskRequest,
+  TaskControlResponse,
+} from '@legaladvisor/shared';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
@@ -53,8 +60,14 @@ export const api = {
   artifactDownloadUrl(artifactId: string) {
     return `${API_BASE}/artifacts/${artifactId}/download`;
   },
+  getArtifactPreview(artifactId: string) {
+    return requestJson<ArtifactPreviewPayload>(`/artifacts/${artifactId}/preview`);
+  },
   manifestDownloadUrl(taskId: string) {
     return `${API_BASE}/tasks/${taskId}/manifest/download`;
+  },
+  taskArchiveDownloadUrl(taskId: string) {
+    return `${API_BASE}/tasks/${taskId}/artifacts/archive/download`;
   },
   createTaskStream() {
     return new EventSource(`${API_BASE}/tasks/stream`);

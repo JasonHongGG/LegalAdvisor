@@ -1,5 +1,6 @@
 import React, { startTransition, useCallback, useEffect, useMemo, useState } from 'react';
 import type {
+  ArtifactPreviewPayload,
   CrawlArtifact,
   CrawlSourceRecord,
   CrawlTaskDetail,
@@ -13,11 +14,7 @@ import {
   AlertTriangle,
   CirclePause,
   CirclePlay,
-  Database,
-  Download,
-  FileText,
   RefreshCcw,
-  Scale,
   XCircle,
 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -25,6 +22,9 @@ import styles from './ScrapingDashboard.module.css';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ProgressBar } from '../components/ui/ProgressBar';
+import { ArtifactPanel } from '../components/dashboard/ArtifactPanel';
+import { ArtifactPreview } from '../components/dashboard/ArtifactPreview';
+import { TaskComposer } from '../components/dashboard/TaskComposer';
 import { api } from '../lib/api';
 
 type FieldValue = string | number | boolean;
@@ -43,37 +43,6 @@ type TimelineStep = {
 
 const AUTO_TASK_SYNC_MS = 15_000;
 const AUTO_SOURCE_SYNC_MS = 60_000;
-
-const COMMON_LAW_TAGS = [
-  '民法',
-  '刑法',
-  '民事訴訟法',
-  '刑事訴訟法',
-  '行政程序法',
-  '行政訴訟法',
-  '強制執行法',
-  '公司法',
-  '商業會計法',
-  '證券交易法',
-  '保險法',
-  '票據法',
-  '勞動基準法',
-  '勞工保險條例',
-  '就業服務法',
-  '性別平等工作法',
-  '職業安全衛生法',
-  '消費者保護法',
-  '公平交易法',
-  '個人資料保護法',
-  '著作權法',
-  '專利法',
-  '商標法',
-  '土地法',
-  '國家賠償法',
-  '家庭暴力防治法',
-  '兒童及少年福利與權益保障法',
-  '洗錢防制法',
-] as const;
 
 const STATUS_LABELS: Record<string, string> = {
   draft: '草稿',
@@ -149,19 +118,6 @@ function formatDuration(durationMs: number) {
 
 function formatStatusLabel(status: string) {
   return STATUS_LABELS[status] ?? status;
-}
-
-function formatHealthLabel(status: CrawlSourceRecord['healthStatus']) {
-  if (status === 'healthy') {
-    return '正常';
-  }
-  if (status === 'degraded') {
-    return '延遲';
-  }
-  if (status === 'down') {
-    return '異常';
-  }
-  return '檢查中';
 }
 
 function describeWorkItemStep(workItem: CrawlWorkItem) {
@@ -314,16 +270,6 @@ function mapProgressStatus(status: CrawlTaskSummary['status'] | CrawlWorkItem['s
   return 'running' as const;
 }
 
-function sourceIcon(sourceId: SourceId, size = 18) {
-  if (sourceId === 'moj-laws') {
-    return <FileText size={size} />;
-  }
-  if (sourceId === 'judicial-sites') {
-    return <Database size={size} />;
-  }
-  return <Scale size={size} />;
-}
-
 function buildInitialFormValues(source: CrawlSourceRecord | null) {
   if (!source) {
     return {} as Record<string, FieldValue>;
@@ -362,33 +308,6 @@ function buildTaskTarget(sourceId: SourceId, values: Record<string, FieldValue>)
   };
 }
 
-function artifactLabel(artifact: CrawlArtifact) {
-  switch (artifact.artifactKind) {
-    case 'law_source_snapshot':
-      return '法規來源快照';
-    case 'law_document_snapshot':
-      return '法規 Markdown';
-    case 'law_article_snapshot':
-      return '條文 JSON';
-    case 'law_revision_snapshot':
-      return '沿革 JSON';
-    case 'law_cross_reference_snapshot':
-      return '交叉引用 JSON';
-    case 'judicial_site_snapshot':
-      return '司法院網站 JSON';
-    case 'judicial_site_markdown':
-      return '司法院網站 Markdown';
-    case 'judgment_source_snapshot':
-      return '裁判資料 JSON';
-    case 'judgment_document_snapshot':
-      return '裁判資料 Markdown';
-    case 'batch_manifest':
-      return '批次清單';
-    default:
-      return artifact.artifactKind;
-  }
-}
-
 export function ScrapingDashboard() {
   const [sources, setSources] = useState<CrawlSourceRecord[]>([]);
   const [tasks, setTasks] = useState<CrawlTaskSummary[]>([]);
@@ -400,6 +319,11 @@ export function ScrapingDashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [nowTimestamp, setNowTimestamp] = useState(() => Date.now());
+  const [activePreviewArtifactId, setActivePreviewArtifactId] = useState<string | null>(null);
+  const [artifactPreview, setArtifactPreview] = useState<ArtifactPreviewPayload | null>(null);
+  const [isArtifactPreviewOpen, setIsArtifactPreviewOpen] = useState(false);
+  const [isArtifactPreviewLoading, setIsArtifactPreviewLoading] = useState(false);
+  const [artifactPreviewError, setArtifactPreviewError] = useState<string | null>(null);
 
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === selectedSourceId) ?? null,
@@ -494,6 +418,14 @@ export function ScrapingDashboard() {
 
   useEffect(() => {
     setNowTimestamp(Date.now());
+  }, [activeTaskId]);
+
+  useEffect(() => {
+    setIsArtifactPreviewOpen(false);
+    setArtifactPreview(null);
+    setActivePreviewArtifactId(null);
+    setArtifactPreviewError(null);
+    setIsArtifactPreviewLoading(false);
   }, [activeTaskId]);
 
   useEffect(() => {
@@ -607,11 +539,29 @@ export function ScrapingDashboard() {
     setFormValues((current) => ({ ...current, [name]: value }));
   }
 
-  function applyLawTag(tag: string) {
-    setFormValues((current) => ({
-      ...current,
-      query: tag,
-    }));
+  async function openArtifactPreview(artifact: CrawlArtifact) {
+    setActivePreviewArtifactId(artifact.id);
+    setArtifactPreview(null);
+    setArtifactPreviewError(null);
+    setIsArtifactPreviewOpen(true);
+    setIsArtifactPreviewLoading(true);
+
+    try {
+      const preview = await api.getArtifactPreview(artifact.id);
+      setArtifactPreview(preview);
+    } catch (error) {
+      setArtifactPreviewError(error instanceof Error ? error.message : '無法載入檔案預覽');
+    } finally {
+      setIsArtifactPreviewLoading(false);
+    }
+  }
+
+  function closeArtifactPreview() {
+    setIsArtifactPreviewOpen(false);
+  }
+
+  function downloadArtifact(artifactId: string) {
+    window.open(api.artifactDownloadUrl(artifactId), '_blank', 'noopener,noreferrer');
   }
 
   function selectTask(taskId: string) {
@@ -630,128 +580,23 @@ export function ScrapingDashboard() {
 
       <div className={styles.topGrid}>
         <Card className={styles.createTaskCard}>
-          <CardHeader className={styles.sectionHeader}>
-            <div className={styles.headerBlock}>
-              <CardTitle>
-                <FileText size={18} /> 建立新任務
-              </CardTitle>
-              <p className={styles.cardCaption}>先選來源，再填最必要的欄位。建立後系統會自動排入佇列並持續更新畫面。</p>
-            </div>
-          </CardHeader>
           <CardContent>
-            {sources.length === 0 ? (
-              <div className={styles.emptyHint}>目前還沒有可用來源。</div>
-            ) : (
-              <>
-                <div className={styles.sourcePicker}>
-                  {sources.map((source) => (
-                    <button
-                      key={source.id}
-                      type="button"
-                      className={clsx(styles.sourceOption, selectedSourceId === source.id && styles.sourceOptionActive)}
-                      onClick={() => setSelectedSourceId(source.id)}
-                    >
-                      <div className={styles.sourceOptionIcon}>{sourceIcon(source.id)}</div>
-                      <div className={styles.sourceOptionBody}>
-                        <div className={styles.sourceOptionTop}>
-                          <strong>{source.name}</strong>
-                          <span className={clsx(styles.sourceHealthPill, styles[`health-${source.healthStatus}`])}>
-                            {formatHealthLabel(source.healthStatus)}
-                          </span>
-                        </div>
-                        <p>{source.description}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-
-                {selectedSource && (
-                  <div className={styles.sourceGuide}>
-                    <span className={styles.fieldLabel}>目前來源說明</span>
-                    <strong>{selectedSource.name}</strong>
-                    <p>{selectedSource.notes}</p>
-                  </div>
-                )}
-
-                <form className={styles.taskForm} onSubmit={handleCreateTask}>
-                  {selectedSource?.taskBuilderFields.map((field) => {
-                    if (field.type === 'checkbox') {
-                      const enabled = Boolean(formValues[field.name]);
-                      return (
-                        <div key={field.name} className={styles.fieldGroup}>
-                          <span className={styles.fieldLabel}>{field.label}</span>
-                          <button
-                            type="button"
-                            className={clsx(styles.toggleButton, enabled && styles.toggleButtonActive)}
-                            aria-pressed={enabled}
-                            onClick={() => updateFormValue(field.name, !enabled)}
-                          >
-                            <span className={clsx(styles.toggleTrack, enabled && styles.toggleTrackActive)}>
-                              <span className={clsx(styles.toggleThumb, enabled && styles.toggleThumbActive)} />
-                            </span>
-                            <span className={styles.toggleContent}>
-                              <span className={styles.toggleTitle}>{enabled ? '已啟用精準比對' : '未啟用精準比對'}</span>
-                              {field.description && <span className={styles.toggleDescription}>{field.description}</span>}
-                            </span>
-                          </button>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <label key={field.name} className={styles.fieldGroup}>
-                        <span className={styles.fieldLabel}>{field.label}</span>
-                        <input
-                          className={styles.input}
-                          type={field.type}
-                          required={field.required}
-                          placeholder={field.placeholder}
-                          value={String(formValues[field.name] ?? '')}
-                          onChange={(event) => updateFormValue(field.name, event.target.value)}
-                        />
-                        {selectedSourceId === 'moj-laws' && field.name === 'query' && (
-                          <div className={styles.tagSection}>
-                            <span className={styles.tagLabel}>常用法規 TAG</span>
-                            <div className={styles.tagList}>
-                              {COMMON_LAW_TAGS.map((tag) => {
-                                const isActive = String(formValues.query ?? '') === tag;
-                                return (
-                                  <button
-                                    key={tag}
-                                    type="button"
-                                    className={clsx(styles.tagChip, isActive && styles.tagChipActive)}
-                                    onClick={() => applyLawTag(tag)}
-                                  >
-                                    {tag}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                        {field.description && <small className={styles.fieldHint}>{field.description}</small>}
-                      </label>
-                    );
-                  })}
-
-                  <div className={styles.formActions}>
-                    <Button type="submit" variant="primary" icon={<CirclePlay size={18} />} disabled={isSubmitting || !selectedSourceId}>
-                      {isSubmitting ? '建立中...' : '建立並開始執行'}
-                    </Button>
-                  </div>
-                </form>
-              </>
-            )}
+            <TaskComposer
+              sources={sources}
+              selectedSourceId={selectedSourceId}
+              formValues={formValues}
+              isSubmitting={isSubmitting}
+              onSelectSource={setSelectedSourceId}
+              onSubmit={handleCreateTask}
+              onFieldChange={updateFormValue}
+            />
           </CardContent>
         </Card>
       </div>
 
       <Card className={styles.tasksCard}>
         <CardHeader className={styles.sectionHeader}>
-          <div className={styles.headerBlock}>
-            <CardTitle>任務進度</CardTitle>
-            <p className={styles.cardCaption}>左側選任務，右側只顯示目前最重要的進度、錯誤與輸出結果。</p>
-          </div>
+          <CardTitle>任務進度</CardTitle>
         </CardHeader>
         <CardContent className={styles.taskWorkspace}>
           <div className={styles.taskRail}>
@@ -877,39 +722,12 @@ export function ScrapingDashboard() {
                       </div>
                     </div>
 
-                    <aside className={styles.artifactPanel}>
-                      <div className={styles.artifactHeader}>
-                        <h4>輸出檔案</h4>
-                        {activeTaskDetail.artifacts.length > 0 && (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            icon={<Download size={16} />}
-                            onClick={() => window.open(api.manifestDownloadUrl(activeTask.id), '_blank', 'noopener,noreferrer')}
-                          >
-                            Manifest
-                          </Button>
-                        )}
-                      </div>
-
-                      <div className={styles.artifactScroller}>
-                        {activeTaskDetail.artifacts.length === 0 && <div className={styles.emptyHint}>尚未輸出檔案。</div>}
-                        {activeTaskDetail.artifacts.map((artifact) => (
-                          <button
-                            key={artifact.id}
-                            type="button"
-                            className={styles.artifactItem}
-                            onClick={() => window.open(api.artifactDownloadUrl(artifact.id), '_blank', 'noopener,noreferrer')}
-                          >
-                            <div>
-                              <strong>{artifactLabel(artifact)}</strong>
-                              <small>{artifact.fileName}</small>
-                            </div>
-                            <Download size={16} />
-                          </button>
-                        ))}
-                      </div>
-                    </aside>
+                    <ArtifactPanel
+                      taskId={activeTask.id}
+                      artifacts={activeTaskDetail.artifacts}
+                      activeArtifactId={activePreviewArtifactId}
+                      onOpenPreview={(artifact) => void openArtifactPreview(artifact)}
+                    />
                   </div>
                 )}
               </>
@@ -917,6 +735,16 @@ export function ScrapingDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      <ArtifactPreview
+        key={activePreviewArtifactId ?? 'artifact-preview'}
+        open={isArtifactPreviewOpen}
+        isLoading={isArtifactPreviewLoading}
+        errorMessage={artifactPreviewError}
+        preview={artifactPreview}
+        onClose={closeArtifactPreview}
+        onDownload={downloadArtifact}
+      />
     </div>
   );
 }

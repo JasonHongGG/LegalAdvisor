@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   artifactKinds,
+  artifactPreviewKinds,
   eventLevels,
   eventTypes,
   rateLimitStatuses,
@@ -17,9 +18,25 @@ export const rateLimitStatusSchema = z.enum(rateLimitStatuses);
 export const taskStatusSchema = z.enum(taskStatuses);
 export const workItemStatusSchema = z.enum(workItemStatuses);
 export const artifactKindSchema = z.enum(artifactKinds);
+export const artifactPreviewKindSchema = z.enum(artifactPreviewKinds);
 export const eventLevelSchema = z.enum(eventLevels);
 export const eventTypeSchema = z.enum(eventTypes);
 export const targetKindSchema = z.enum(targetKinds);
+
+const crawlArtifactSchema = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  workItemId: z.string().nullable(),
+  artifactKind: artifactKindSchema,
+  fileName: z.string().min(1),
+  storagePath: z.string().min(1),
+  contentType: z.string().min(1),
+  sizeBytes: z.number().int().nonnegative(),
+  hashSha256: z.string().min(1),
+  schemaVersion: z.string().min(1),
+  metadata: z.record(z.string(), z.unknown()),
+  createdAt: z.string().min(1),
+});
 
 export const lawTargetConfigSchema = z.object({
   kind: z.literal('law'),
@@ -57,6 +74,16 @@ export const createTaskRequestSchema = z.object({
 export const taskControlResponseSchema = z.object({
   taskId: z.string().min(1),
   status: taskStatusSchema,
+});
+
+export const artifactPreviewPayloadSchema = z.object({
+  artifact: crawlArtifactSchema,
+  previewKind: artifactPreviewKindSchema,
+  content: z.string().nullable(),
+  encoding: z.enum(['utf-8']).nullable(),
+  truncated: z.boolean(),
+  byteLength: z.number().int().nonnegative(),
+  lineCount: z.number().int().nonnegative().nullable(),
 });
 
 export const eventStreamPayloadSchema = z.object({

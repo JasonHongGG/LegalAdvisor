@@ -1,4 +1,6 @@
+import AdmZip from 'adm-zip';
 import type {
+  ArtifactPreviewPayload,
   CreateTaskRequest,
   CrawlArtifact,
   CrawlTaskDetail,
@@ -13,10 +15,18 @@ import { createTaskRequestSchema } from '@legaladvisor/shared';
 import { getAdapter } from '../adapters/index.js';
 import type { AdapterContext } from '../adapters/base.js';
 import type { CrawlRepositoryPort, QueueServicePort } from '../contracts/runtime.js';
-import { createId, safeFileName } from '../utils.js';
+import {
+  createId,
+  detectArtifactPreviewKind,
+  parseJsonText,
+  safeFileName,
+  toUtf8Text,
+} from '../utils.js';
 import type { EventBus } from './eventBus.js';
 import type { SourceHealthService } from './sourceHealthService.js';
 import { StorageService } from './storageService.js';
+
+const MAX_ARTIFACT_PREVIEW_BYTES = 1_500_000;
 
 function taskUpdateEvent(taskId: string) {
   return {
@@ -140,6 +150,74 @@ export class TaskService {
       fileName: `task-${safeFileName(taskId)}-manifest.json`,
       contentType: 'application/json; charset=utf-8',
       buffer,
+    };
+  }
+
+  async downloadTaskArchive(taskId: string) {
+    const task = await this.getTaskOrThrow(taskId);
+    if (!task.artifacts.length) {
+      throw new Error('Artifacts not generated yet');
+    }
+
+    const zip = new AdmZip();
+    const manifest = await this.downloadManifest(taskId).catch(() => null);
+    if (manifest) {
+      zip.addFile(`manifest/${manifest.fileName}`, manifest.buffer);
+    }
+
+    for (const artifact of task.artifacts) {
+      const buffer = await this.storageService.download(artifact.storagePath);
+      zip.addFile(`artifacts/${artifact.artifactKind}/${artifact.fileName}`, buffer);
+    }
+
+    return {
+      fileName: `task-${safeFileName(taskId)}-artifacts.zip`,
+      contentType: 'application/zip',
+      buffer: zip.toBuffer(),
+    };
+  }
+
+  async previewArtifact(artifactId: string): Promise<ArtifactPreviewPayload> {
+    const artifact = await this.repository.getArtifact(artifactId);
+    if (!artifact) {
+      throw new Error('Artifact not found');
+    }
+
+    const previewKind = detectArtifactPreviewKind(artifact.contentType, artifact.fileName);
+    if (previewKind === 'unsupported') {
+      return {
+        artifact,
+        previewKind,
+        content: null,
+        encoding: null,
+        truncated: false,
+        byteLength: artifact.sizeBytes,
+        lineCount: null,
+      };
+    }
+
+    const buffer = await this.storageService.download(artifact.storagePath);
+    const truncated = buffer.byteLength > MAX_ARTIFACT_PREVIEW_BYTES;
+    const previewBuffer = truncated ? buffer.subarray(0, MAX_ARTIFACT_PREVIEW_BYTES) : buffer;
+    const previewText = toUtf8Text(previewBuffer);
+
+    let normalizedContent = previewText;
+    if (previewKind === 'json' && !truncated) {
+      try {
+        normalizedContent = JSON.stringify(parseJsonText(previewText), null, 2);
+      } catch {
+        normalizedContent = previewText;
+      }
+    }
+
+    return {
+      artifact,
+      previewKind,
+      content: normalizedContent,
+      encoding: 'utf-8',
+      truncated,
+      byteLength: artifact.sizeBytes,
+      lineCount: normalizedContent.length ? normalizedContent.split(/\r?\n/).length : 0,
     };
   }
 

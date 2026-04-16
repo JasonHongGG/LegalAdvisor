@@ -49,6 +49,9 @@ export const artifactKinds = [
 ] as const;
 export type ArtifactKind = (typeof artifactKinds)[number];
 
+export const artifactPreviewKinds = ['json', 'markdown', 'text', 'unsupported'] as const;
+export type ArtifactPreviewKind = (typeof artifactPreviewKinds)[number];
+
 export const targetKinds = ['law', 'judicial-list', 'judgment-dataset'] as const;
 export type TargetKind = (typeof targetKinds)[number];
 
@@ -154,6 +157,16 @@ export interface CrawlArtifact {
   schemaVersion: string;
   metadata: Record<string, unknown>;
   createdAt: string;
+}
+
+export interface ArtifactPreviewPayload {
+  artifact: CrawlArtifact;
+  previewKind: ArtifactPreviewKind;
+  content: string | null;
+  encoding: 'utf-8' | null;
+  truncated: boolean;
+  byteLength: number;
+  lineCount: number | null;
 }
 
 export interface CrawlEvent {

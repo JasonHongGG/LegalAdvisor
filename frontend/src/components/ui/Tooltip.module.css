@@ -1,0 +1,56 @@
+.trigger {
+  display: inline-flex;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 1400;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(8, 11, 24, 0.92);
+  color: var(--text-primary);
+  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.44);
+  backdrop-filter: blur(18px);
+  animation: tooltip-in 0.18s ease forwards;
+  pointer-events: none;
+}
+
+.tooltip[data-side='top'] {
+  transform: translate(-50%, calc(-100% - 8px));
+}
+
+.tooltip[data-side='bottom'] {
+  transform: translate(-50%, 8px);
+}
+
+.content {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.arrow {
+  position: absolute;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  background: rgba(8, 11, 24, 0.92);
+  border-left: 1px solid rgba(148, 163, 184, 0.18);
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.tooltip[data-side='top'] .arrow {
+  bottom: -6px;
+  border-left: none;
+  border-top: none;
+  border-right: 1px solid rgba(148, 163, 184, 0.18);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.tooltip[data-side='bottom'] .arrow {
+  top: -6px;
+}

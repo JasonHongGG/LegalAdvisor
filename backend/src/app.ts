@@ -4,6 +4,7 @@ import { createSourceRouter } from './routes/sources.js';
 import { createTaskRouter } from './routes/tasks.js';
 import type { EventBus } from './services/eventBus.js';
 import type { TaskService } from './services/taskService.js';
+import { createAttachmentDisposition } from './utils.js';
 
 export function createApp(taskService: TaskService, eventBus: EventBus) {
   const app = express();
@@ -21,8 +22,16 @@ export function createApp(taskService: TaskService, eventBus: EventBus) {
     try {
       const { artifact, buffer } = await taskService.downloadArtifact(request.params.artifactId);
       response.setHeader('Content-Type', artifact.contentType);
-      response.setHeader('Content-Disposition', `attachment; filename="${artifact.fileName}"`);
+      response.setHeader('Content-Disposition', createAttachmentDisposition(artifact.fileName));
       response.send(buffer);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/artifacts/:artifactId/preview', async (request, response, next) => {
+    try {
+      response.json(await taskService.previewArtifact(request.params.artifactId));
     } catch (error) {
       next(error);
     }
