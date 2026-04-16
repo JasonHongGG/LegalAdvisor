@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CreateTaskRequestDto, SourceId, SourceOverviewDto, TaskDetailDto, TaskSummaryDto } from '@legaladvisor/shared';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../../lib/api';
@@ -25,6 +25,11 @@ export function useCrawlerDashboardController() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [nowTimestamp, setNowTimestamp] = useState(() => Date.now());
+  const taskDetailsRef = useRef<Record<string, TaskDetailDto>>({});
+
+  useEffect(() => {
+    taskDetailsRef.current = taskDetails;
+  }, [taskDetails]);
 
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === selectedSourceId) ?? null,
@@ -95,16 +100,21 @@ export function useCrawlerDashboardController() {
   }, [navigate, routeTaskId]);
 
   const loadTaskDetail = useCallback(async (taskId: string, force = false) => {
-    if (!force && taskDetails[taskId]) {
-      return taskDetails[taskId];
+    if (!force && taskDetailsRef.current[taskId]) {
+      return taskDetailsRef.current[taskId];
     }
+
     const detail = await api.getTask(taskId);
     if (detail) {
-      setTaskDetails((current) => ({ ...current, [taskId]: detail }));
+      setTaskDetails((current) => {
+        const next = { ...current, [taskId]: detail };
+        taskDetailsRef.current = next;
+        return next;
+      });
       return detail;
     }
     return null;
-  }, [taskDetails]);
+  }, []);
 
   const refreshAll = useCallback(async () => {
     setIsLoading(true);
@@ -131,7 +141,7 @@ export function useCrawlerDashboardController() {
     if (routeTaskId) {
       void loadTaskDetail(routeTaskId);
     }
-  }, [artifactPreview, loadTaskDetail, routeTaskId]);
+  }, [artifactPreview.resetPreview, loadTaskDetail, routeTaskId]);
 
   useTaskStream({
     activeTaskId: routeTaskId ?? null,
