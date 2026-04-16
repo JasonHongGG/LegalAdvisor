@@ -1,8 +1,8 @@
 import PgBoss from 'pg-boss';
-import type { QueueServicePort } from '../contracts/runtime.js';
+import type { TaskQueuePort } from '../application/ports/runtime.js';
 import type { AppConfig } from '../config.js';
 
-export class QueueService implements QueueServicePort {
+export class QueueService implements TaskQueuePort {
   private readonly boss: PgBoss;
   private started = false;
 

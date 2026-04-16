@@ -1,3 +1,3 @@
-export * from './domain.js';
-export * from './schemas.js';
-export * from './sources.js';
+export * from './contracts/api/v1.js';
+export * from './contracts/events/v1.js';
+export * from './schemas/api/v1.js';

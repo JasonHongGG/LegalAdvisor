@@ -1,20 +1,17 @@
-import { useRef, useState } from 'react';
-import type { CrawlSourceRecord } from '@legaladvisor/shared';
+import { useEffect, useRef, useState } from 'react';
+import type { SourceOverviewDto } from '@legaladvisor/shared';
 import { CirclePlay, FileText, Info } from 'lucide-react';
 import { clsx } from 'clsx';
 import styles from './TaskComposer.module.css';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
 import { Tooltip } from '../ui/Tooltip';
-
-type FieldValue = string | number | boolean;
+import type { FieldValue } from '../../features/crawler/domain/types';
 
 type TaskComposerProps = {
-  sources: CrawlSourceRecord[];
-  selectedSourceId: CrawlSourceRecord['id'] | null;
+  source: SourceOverviewDto | null;
   formValues: Record<string, FieldValue>;
   isSubmitting: boolean;
-  onSelectSource: (sourceId: CrawlSourceRecord['id']) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onFieldChange: (name: string, value: FieldValue) => void;
 };
@@ -73,11 +70,9 @@ const COMMON_LAW_TAGS = [
 ] as const;
 
 export function TaskComposer({
-  sources,
-  selectedSourceId,
+  source,
   formValues,
   isSubmitting,
-  onSelectSource,
   onSubmit,
   onFieldChange,
 }: TaskComposerProps) {
@@ -89,8 +84,36 @@ export function TaskComposer({
     didDrag: false,
   });
   const [isTagRailDragging, setIsTagRailDragging] = useState(false);
-  const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? null;
-  const exactMatchField = selectedSource?.taskBuilderFields.find((field) => field.name === 'exactMatch') ?? null;
+  const exactMatchField = source?.taskBuilderFields.find((field) => field.name === 'exactMatch') ?? null;
+
+  useEffect(() => {
+    const rail = tagRailRef.current;
+    if (!rail) {
+      return undefined;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (rail.scrollWidth <= rail.clientWidth) {
+        return;
+      }
+
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (delta === 0) {
+        return;
+      }
+
+      rail.scrollLeft += delta;
+    };
+
+    rail.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      rail.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
 
   function handleTagRailMouseDown(event: React.MouseEvent<HTMLDivElement>) {
     if (event.button !== 0 || !tagRailRef.current) {
@@ -141,21 +164,6 @@ export function TaskComposer({
     dragStateRef.current.didDrag = false;
   }
 
-  function handleTagRailWheel(event: React.WheelEvent<HTMLDivElement>) {
-    const rail = tagRailRef.current;
-    if (!rail || rail.scrollWidth <= rail.clientWidth) {
-      return;
-    }
-
-    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    if (delta === 0) {
-      return;
-    }
-
-    event.preventDefault();
-    rail.scrollLeft += delta;
-  }
-
   return (
     <div className={styles.wrapper}>
       <div className={styles.header}>
@@ -165,29 +173,11 @@ export function TaskComposer({
         </div>
       </div>
 
-      {sources.length === 0 ? (
+      {!source ? (
         <div className={styles.empty}>目前還沒有可用來源。</div>
       ) : (
-        <>
-          <div className={styles.sourcePicker}>
-            {sources.map((source) => (
-              <button
-                key={source.id}
-                type="button"
-                className={clsx(styles.sourceOption, selectedSourceId === source.id && styles.sourceOptionActive)}
-                onClick={() => onSelectSource(source.id)}
-              >
-                <div className={styles.sourceOptionTop}>
-                  <strong>{source.name}</strong>
-                  <span className={clsx(styles.sourceStatus, styles[`health-${source.healthStatus}`])}>{formatHealthLabel(source.healthStatus)}</span>
-                </div>
-                <p>{source.shortName}</p>
-              </button>
-            ))}
-          </div>
-
-          <form className={styles.form} onSubmit={onSubmit}>
-            {selectedSource?.taskBuilderFields
+        <form className={styles.form} onSubmit={onSubmit}>
+          {source.taskBuilderFields
               .filter((field) => field.name !== 'exactMatch')
               .map((field) => (
                 <label key={field.name} className={styles.fieldGroup}>
@@ -211,7 +201,7 @@ export function TaskComposer({
                     value={String(formValues[field.name] ?? '')}
                     onChange={(event) => onFieldChange(field.name, event.target.value)}
                   />
-                  {selectedSourceId === 'moj-laws' && field.name === 'query' && (
+                  {source.id === 'moj-laws' && field.name === 'query' && (
                     <div
                       ref={tagRailRef}
                       className={clsx(styles.tagRail, isTagRailDragging && styles.tagRailDragging)}
@@ -220,7 +210,6 @@ export function TaskComposer({
                       onMouseUp={stopTagRailDrag}
                       onMouseLeave={stopTagRailDrag}
                       onClickCapture={handleTagRailClickCapture}
-                      onWheel={handleTagRailWheel}
                     >
                       <div className={styles.tagList}>
                         {COMMON_LAW_TAGS.map((tag) => {
@@ -269,26 +258,12 @@ export function TaskComposer({
                 )}
               </div>
 
-              <Button type="submit" variant="primary" icon={<CirclePlay size={18} />} disabled={isSubmitting || !selectedSourceId}>
+              <Button type="submit" variant="primary" icon={<CirclePlay size={18} />} disabled={isSubmitting || !source}>
                 {isSubmitting ? '建立中...' : '建立並開始執行'}
               </Button>
             </div>
-          </form>
-        </>
+        </form>
       )}
     </div>
   );
-}
-
-function formatHealthLabel(status: CrawlSourceRecord['healthStatus']) {
-  if (status === 'healthy') {
-    return '正常';
-  }
-  if (status === 'degraded') {
-    return '延遲';
-  }
-  if (status === 'down') {
-    return '異常';
-  }
-  return '檢查中';
 }

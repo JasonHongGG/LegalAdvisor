@@ -1,17 +1,13 @@
 import styles from './Sidebar.module.css';
 import { clsx } from 'clsx';
+import { NavLink } from 'react-router-dom';
 import { Database, FolderTree, MessageSquare, Settings, ShieldAlert } from 'lucide-react';
 
-interface SidebarProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
-}
-
-export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
+export function Sidebar() {
   const navItems = [
-    { id: 'scraping', label: '爬取管理平台', icon: <Database size={20} /> },
-    { id: 'rag-processing', label: '資料庫與處理', icon: <FolderTree size={20} /> },
-    { id: 'legal-chat', label: '法律諮詢問答', icon: <MessageSquare size={20} /> },
+    { id: 'scraping', label: '爬取管理平台', href: '/scraping', icon: <Database size={20} /> },
+    { id: 'rag-processing', label: '資料庫與處理', href: '/rag-processing', icon: <FolderTree size={20} /> },
+    { id: 'legal-chat', label: '法律諮詢問答', href: '/legal-chat', icon: <MessageSquare size={20} /> },
   ];
 
   return (
@@ -26,15 +22,12 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
       <nav className={styles.nav}>
         <p className={styles.navConfig}>核心工作區</p>
         <ul className={styles.navList}>
-          {navItems.map(item => (
+          {navItems.map((item) => (
             <li key={item.id}>
-              <button
-                className={clsx(styles.navItem, activeTab === item.id && styles.active)}
-                onClick={() => setActiveTab(item.id)}
-              >
+              <NavLink to={item.href} className={({ isActive }) => clsx(styles.navItem, isActive && styles.active)}>
                 {item.icon}
                 <span>{item.label}</span>
-              </button>
+              </NavLink>
             </li>
           ))}
         </ul>

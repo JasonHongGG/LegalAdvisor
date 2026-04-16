@@ -14,17 +14,22 @@
     "dev:backend": "npm run dev -w @legaladvisor/backend",
     "build": "npm run build -w @legaladvisor/shared && npm run build -w @legaladvisor/backend && npm run build -w @legaladvisor/frontend",
     "lint": "npm run lint -w @legaladvisor/shared && npm run lint -w @legaladvisor/backend && npm run lint -w @legaladvisor/frontend",
-    "typecheck": "npm run typecheck -w @legaladvisor/shared && npm run typecheck -w @legaladvisor/backend && npm run typecheck -w @legaladvisor/frontend"
+    "typecheck": "npm run typecheck -w @legaladvisor/shared && npm run typecheck -w @legaladvisor/backend && npm run typecheck -w @legaladvisor/frontend",
+    "test": "npm run test -w @legaladvisor/shared && npm run test -w @legaladvisor/backend && npm run test -w @legaladvisor/frontend"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
     "@types/node": "^24.12.2",
     "concurrently": "^9.2.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "jsdom": "^26.1.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.58.0"
+    "typescript-eslint": "^8.58.0",
+    "vitest": "^3.2.4"
   }
 }

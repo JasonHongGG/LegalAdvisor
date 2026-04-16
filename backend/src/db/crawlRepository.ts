@@ -1,14 +1,14 @@
 import { Pool } from 'pg';
 import type {
-  CrawlArtifact,
-  CrawlEvent,
-  CrawlManifest,
-  CrawlSourceRecord,
-  CrawlTaskDetail,
-  CrawlTaskSummary,
-  CrawlTaskTarget,
-  CrawlWorkItem,
-  CreateTaskRequest,
+  ArtifactDto as CrawlArtifact,
+  TaskEventDto as CrawlEvent,
+  TaskManifestDto as CrawlManifest,
+  SourceOverviewDto as CrawlSourceRecord,
+  TaskDetailDto as CrawlTaskDetail,
+  TaskSummaryDto as CrawlTaskSummary,
+  TaskTargetDto as CrawlTaskTarget,
+  WorkItemDto as CrawlWorkItem,
+  CreateTaskRequestDto as CreateTaskRequest,
   EventLevel,
   EventType,
   SourceId,
@@ -16,29 +16,19 @@ import type {
   TaskStatus,
   WorkItemStatus,
 } from '@legaladvisor/shared';
-import { SOURCE_CATALOG } from '@legaladvisor/shared';
-import type { CrawlRepositoryPort } from '../contracts/runtime.js';
+import type {
+  ArtifactRepository,
+  CheckpointRepository,
+  EventRepository,
+  InsertArtifactInput,
+  InsertEventInput,
+  SourceHealthPatch,
+  SourceRepository,
+  TaskRepository,
+  UpsertCheckpointInput,
+} from '../application/ports/repositories.js';
+import type { SourceCatalogEntry } from '../domain/sourceCatalog.js';
 import { createId } from '../utils.js';
-
-type SourceHealthPatch = {
-  health_status: string;
-  rate_limit_status: string;
-  last_checked_at: string;
-  last_error_message?: string | null;
-};
-
-type InsertArtifactInput = Omit<CrawlArtifact, 'createdAt'> & { createdAt?: string };
-
-type InsertEventInput = Omit<CrawlEvent, 'occurredAt'> & { occurredAt?: string };
-
-type UpsertCheckpointInput = {
-  id?: string;
-  taskId: string;
-  workItemId: string | null;
-  checkpointKey: string;
-  cursor: Record<string, unknown>;
-  updatedAt?: string;
-};
 
 function parseJson<T>(value: unknown, fallback: T): T {
   if (!value) {
@@ -60,7 +50,7 @@ function toIsoString(value: unknown): string | null {
   return value instanceof Date ? value.toISOString() : String(value);
 }
 
-export class CrawlRepository implements CrawlRepositoryPort {
+export class CrawlRepository implements SourceRepository, TaskRepository, ArtifactRepository, EventRepository, CheckpointRepository {
   constructor(
     private readonly db: Pool,
     private readonly schema: string,
@@ -74,8 +64,8 @@ export class CrawlRepository implements CrawlRepositoryPort {
     return this.db.connect();
   }
 
-  async ensureSourceCatalog() {
-    for (const source of SOURCE_CATALOG) {
+  async ensureSourceCatalog(catalog: SourceCatalogEntry[]) {
+    for (const source of catalog) {
       await this.db.query(
         `
           insert into ${this.table('crawl_sources')} (
@@ -108,7 +98,7 @@ export class CrawlRepository implements CrawlRepositoryPort {
           source.notes,
           JSON.stringify(source.capabilities),
           JSON.stringify(source.taskBuilderFields),
-          1,
+          source.recommendedConcurrency,
         ],
       );
     }
@@ -131,7 +121,7 @@ export class CrawlRepository implements CrawlRepositoryPort {
           updated_at = now()
         where id = $1
       `,
-      [sourceId, patch.health_status, patch.rate_limit_status, patch.last_checked_at, patch.last_error_message ?? null],
+      [sourceId, patch.healthStatus, patch.rateLimitStatus, patch.lastCheckedAt, patch.lastErrorMessage ?? null],
     );
   }
 

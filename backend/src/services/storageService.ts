@@ -2,20 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { ArtifactKind } from '@legaladvisor/shared';
+import type { ArtifactStoragePort, ArtifactWriteResult } from '../application/ports/runtime.js';
 import type { AppConfig } from '../config.js';
 import { safeFileName, sha256 } from '../utils.js';
 
-export interface StoredArtifact {
-  artifactKind: ArtifactKind;
-  fileName: string;
-  storagePath: string;
-  contentType: string;
-  sizeBytes: number;
-  hashSha256: string;
-  metadata: Record<string, unknown>;
-}
+export type StoredArtifact = ArtifactWriteResult;
 
-export class StorageService {
+export class StorageService implements ArtifactStoragePort {
   private readonly client: SupabaseClient | null;
 
   constructor(private readonly config: AppConfig) {

@@ -1,26 +1,27 @@
 import { Router } from 'express';
-import type { EventBus } from '../services/eventBus.js';
-import type { TaskService } from '../services/taskService.js';
-import { createAttachmentDisposition } from '../utils.js';
+import { createTaskRequestSchema } from '@legaladvisor/shared';
+import type { CrawlerApplicationFacade } from '../../../application/services/crawlerApplicationFacade.js';
+import { createAttachmentDisposition } from '../../../utils.js';
+import { validateBody } from '../middleware/validate.js';
 
-export function createTaskRouter(taskService: TaskService, eventBus: EventBus) {
+export function createTaskRouter(application: CrawlerApplicationFacade) {
   const router = Router();
 
   router.get('/stream', (_request, response) => {
-    eventBus.subscribe(response);
+    application.subscribeToTaskStream(response);
   });
 
   router.get('/', async (_request, response, next) => {
     try {
-      response.json(await taskService.listTasks());
+      response.json(await application.listTasks());
     } catch (error) {
       next(error);
     }
   });
 
-  router.post('/', async (request, response, next) => {
+  router.post('/', validateBody(createTaskRequestSchema), async (request, response, next) => {
     try {
-      const task = await taskService.createTask(request.body);
+      const task = await application.createTask(request.body);
       response.status(201).json(task);
     } catch (error) {
       next(error);
@@ -29,7 +30,7 @@ export function createTaskRouter(taskService: TaskService, eventBus: EventBus) {
 
   router.get('/:taskId', async (request, response, next) => {
     try {
-      response.json(await taskService.getTaskDetail(request.params.taskId));
+      response.json(await application.getTaskDetail(request.params.taskId));
     } catch (error) {
       next(error);
     }
@@ -37,7 +38,7 @@ export function createTaskRouter(taskService: TaskService, eventBus: EventBus) {
 
   router.post('/:taskId/pause', async (request, response, next) => {
     try {
-      response.json(await taskService.pauseTask(request.params.taskId));
+      response.json(await application.pauseTask(request.params.taskId));
     } catch (error) {
       next(error);
     }
@@ -45,7 +46,7 @@ export function createTaskRouter(taskService: TaskService, eventBus: EventBus) {
 
   router.post('/:taskId/resume', async (request, response, next) => {
     try {
-      response.json(await taskService.resumeTask(request.params.taskId));
+      response.json(await application.resumeTask(request.params.taskId));
     } catch (error) {
       next(error);
     }
@@ -53,7 +54,7 @@ export function createTaskRouter(taskService: TaskService, eventBus: EventBus) {
 
   router.post('/:taskId/cancel', async (request, response, next) => {
     try {
-      response.json(await taskService.cancelTask(request.params.taskId));
+      response.json(await application.cancelTask(request.params.taskId));
     } catch (error) {
       next(error);
     }
@@ -61,7 +62,7 @@ export function createTaskRouter(taskService: TaskService, eventBus: EventBus) {
 
   router.post('/:taskId/retry-failed', async (request, response, next) => {
     try {
-      response.json(await taskService.retryFailedItems(request.params.taskId));
+      response.json(await application.retryFailedItems(request.params.taskId));
     } catch (error) {
       next(error);
     }
@@ -69,7 +70,7 @@ export function createTaskRouter(taskService: TaskService, eventBus: EventBus) {
 
   router.get('/:taskId/manifest/download', async (request, response, next) => {
     try {
-      const manifest = await taskService.downloadManifest(request.params.taskId);
+      const manifest = await application.downloadManifest(request.params.taskId);
       response.setHeader('Content-Type', manifest.contentType);
       response.setHeader('Content-Disposition', createAttachmentDisposition(manifest.fileName));
       response.send(manifest.buffer);
@@ -80,7 +81,7 @@ export function createTaskRouter(taskService: TaskService, eventBus: EventBus) {
 
   router.get('/:taskId/artifacts/archive/download', async (request, response, next) => {
     try {
-      const archive = await taskService.downloadTaskArchive(request.params.taskId);
+      const archive = await application.downloadTaskArchive(request.params.taskId);
       response.setHeader('Content-Type', archive.contentType);
       response.setHeader('Content-Disposition', createAttachmentDisposition(archive.fileName));
       response.send(archive.buffer);

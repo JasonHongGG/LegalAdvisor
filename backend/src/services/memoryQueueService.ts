@@ -1,6 +1,6 @@
-import type { QueueServicePort } from '../contracts/runtime.js';
+import type { TaskQueuePort } from '../application/ports/runtime.js';
 
-export class MemoryQueueService implements QueueServicePort {
+export class MemoryQueueService implements TaskQueuePort {
   private handler: ((taskId: string) => Promise<void>) | null = null;
   private started = false;
   private pendingTaskIds: string[] = [];

@@ -1,19 +1,20 @@
-import type { CrawlArtifact } from '@legaladvisor/shared';
+import type { ArtifactDto } from '@legaladvisor/shared';
 import { Archive, Download, Eye, FileText } from 'lucide-react';
 import { clsx } from 'clsx';
 import styles from './ArtifactPanel.module.css';
 import { IconButton } from '../ui/IconButton';
 import { Tooltip } from '../ui/Tooltip';
+import { artifactLabel } from '../../features/crawler/domain/labels';
 import { api } from '../../lib/api';
 
 type ArtifactPanelProps = {
   taskId: string;
-  artifacts: CrawlArtifact[];
+  artifacts: ArtifactDto[];
   activeArtifactId: string | null;
-  onOpenPreview: (artifact: CrawlArtifact) => void;
+  onOpenPreview: (artifact: ArtifactDto) => void;
 };
 
-function artifactAccentClass(artifactKind: CrawlArtifact['artifactKind']) {
+function artifactAccentClass(artifactKind: ArtifactDto['artifactKind']) {
   if (artifactKind.includes('markdown')) {
     return styles.markdown;
   }
@@ -69,31 +70,4 @@ export function ArtifactPanel({ taskId, artifacts, activeArtifactId, onOpenPrevi
       </div>
     </aside>
   );
-}
-
-function artifactLabel(artifact: CrawlArtifact) {
-  switch (artifact.artifactKind) {
-    case 'law_source_snapshot':
-      return '法規來源快照';
-    case 'law_document_snapshot':
-      return '法規 Markdown';
-    case 'law_article_snapshot':
-      return '條文 JSON';
-    case 'law_revision_snapshot':
-      return '沿革 JSON';
-    case 'law_cross_reference_snapshot':
-      return '交叉引用 JSON';
-    case 'judicial_site_snapshot':
-      return '司法院網站 JSON';
-    case 'judicial_site_markdown':
-      return '司法院網站 Markdown';
-    case 'judgment_source_snapshot':
-      return '裁判資料 JSON';
-    case 'judgment_document_snapshot':
-      return '裁判資料 Markdown';
-    case 'batch_manifest':
-      return '批次清單';
-    default:
-      return artifact.artifactKind;
-  }
 }

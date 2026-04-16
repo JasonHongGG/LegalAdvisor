@@ -1,21 +1,22 @@
 import type {
   ArtifactKind,
-  CrawlSourceRecord,
+  SourceOverviewDto,
   EventLevel,
   EventType,
   SourceId,
   TaskTargetConfig,
-  WorkItemStatus,
+  WorkItemDto,
 } from '@legaladvisor/shared';
-import type { StoredArtifact } from '../services/storageService.js';
+import type { ArtifactWriteResult } from '../application/ports/runtime.js';
 
 export interface AdapterContext {
   taskId: string;
   workItemId: string;
-  source: CrawlSourceRecord;
+  source: SourceOverviewDto;
   target: TaskTargetConfig;
+  getCheckpoint(checkpointKey: string): Record<string, unknown> | null;
   updateWorkItem(patch: {
-    status?: WorkItemStatus;
+    status?: WorkItemDto['status'];
     progress?: number;
     currentStage?: string;
     sourceLocator?: string | null;
@@ -31,8 +32,8 @@ export interface AdapterContext {
   }): Promise<void>;
   emit(level: EventLevel, eventType: EventType, message: string, details?: Record<string, unknown>): Promise<void>;
   checkpoint(checkpointKey: string, cursor: Record<string, unknown>): Promise<void>;
-  writeJsonArtifact(artifactKind: ArtifactKind, baseName: string, data: unknown, metadata?: Record<string, unknown>): Promise<StoredArtifact>;
-  writeMarkdownArtifact(artifactKind: ArtifactKind, baseName: string, content: string, metadata?: Record<string, unknown>): Promise<StoredArtifact>;
+  writeJsonArtifact(artifactKind: ArtifactKind, baseName: string, data: unknown, metadata?: Record<string, unknown>): Promise<ArtifactWriteResult>;
+  writeMarkdownArtifact(artifactKind: ArtifactKind, baseName: string, content: string, metadata?: Record<string, unknown>): Promise<ArtifactWriteResult>;
   markRateLimit(status: 'normal' | 'throttled' | 'blocked', message?: string): Promise<void>;
   incrementSourceRequestCount(amount?: number): Promise<void>;
 }

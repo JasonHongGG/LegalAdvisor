@@ -1,25 +1,29 @@
 import type {
-  CrawlArtifact,
-  CrawlEvent,
-  CrawlManifest,
-  CrawlSourceRecord,
-  CrawlTaskDetail,
-  CrawlTaskSummary,
-  CrawlTaskTarget,
-  CrawlWorkItem,
-  CreateTaskRequest,
+  ArtifactDto as CrawlArtifact,
+  TaskEventDto as CrawlEvent,
+  TaskManifestDto as CrawlManifest,
+  SourceOverviewDto as CrawlSourceRecord,
+  TaskDetailDto as CrawlTaskDetail,
+  TaskSummaryDto as CrawlTaskSummary,
+  TaskTargetDto as CrawlTaskTarget,
+  WorkItemDto as CrawlWorkItem,
+  CreateTaskRequestDto as CreateTaskRequest,
   SourceId,
   TaskStatus,
 } from '@legaladvisor/shared';
-import { SOURCE_CATALOG } from '@legaladvisor/shared';
 import type {
-  CrawlRepositoryPort,
+  ArtifactRepository,
+  CheckpointRepository,
+  EventRepository,
   InsertArtifactInput,
   InsertEventInput,
   RunSummaryInput,
   SourceHealthPatch,
+  SourceRepository,
+  TaskRepository,
   UpsertCheckpointInput,
-} from '../contracts/runtime.js';
+} from '../application/ports/repositories.js';
+import type { SourceCatalogEntry } from '../domain/sourceCatalog.js';
 import { createId } from '../utils.js';
 
 type CheckpointRecord = {
@@ -66,14 +70,14 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-export class InMemoryCrawlRepository implements CrawlRepositoryPort {
+export class InMemoryCrawlRepository implements SourceRepository, TaskRepository, ArtifactRepository, EventRepository, CheckpointRepository {
   private readonly sources = new Map<SourceId, CrawlSourceRecord>();
   private readonly tasks = new Map<string, InternalTaskState>();
   private readonly workItemToTask = new Map<string, string>();
   private readonly artifacts = new Map<string, CrawlArtifact>();
 
-  async ensureSourceCatalog() {
-    for (const source of SOURCE_CATALOG) {
+  async ensureSourceCatalog(catalog: SourceCatalogEntry[]) {
+    for (const source of catalog) {
       const existing = this.sources.get(source.id);
       this.sources.set(source.id, {
         id: source.id,
@@ -87,7 +91,7 @@ export class InMemoryCrawlRepository implements CrawlRepositoryPort {
         healthStatus: existing?.healthStatus ?? 'unknown',
         rateLimitStatus: existing?.rateLimitStatus ?? 'unknown',
         todayRequestCount: existing?.todayRequestCount ?? 0,
-        recommendedConcurrency: existing?.recommendedConcurrency ?? 1,
+        recommendedConcurrency: existing?.recommendedConcurrency ?? source.recommendedConcurrency,
         lastCheckedAt: existing?.lastCheckedAt ?? null,
         lastErrorMessage: existing?.lastErrorMessage ?? null,
         capabilities: clone(source.capabilities),
@@ -102,10 +106,10 @@ export class InMemoryCrawlRepository implements CrawlRepositoryPort {
 
   async updateSourceHealth(sourceId: SourceId, patch: SourceHealthPatch) {
     const source = this.requireSource(sourceId);
-    source.healthStatus = patch.health_status as CrawlSourceRecord['healthStatus'];
-    source.rateLimitStatus = patch.rate_limit_status as CrawlSourceRecord['rateLimitStatus'];
-    source.lastCheckedAt = patch.last_checked_at;
-    source.lastErrorMessage = patch.last_error_message ?? null;
+    source.healthStatus = patch.healthStatus as CrawlSourceRecord['healthStatus'];
+    source.rateLimitStatus = patch.rateLimitStatus as CrawlSourceRecord['rateLimitStatus'];
+    source.lastCheckedAt = patch.lastCheckedAt;
+    source.lastErrorMessage = patch.lastErrorMessage ?? null;
   }
 
   async incrementSourceRequestCount(sourceId: SourceId, amount = 1) {

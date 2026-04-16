@@ -1,12 +1,12 @@
 import cors from 'cors';
 import express from 'express';
-import { createSourceRouter } from './routes/sources.js';
-import { createTaskRouter } from './routes/tasks.js';
-import type { EventBus } from './services/eventBus.js';
-import type { TaskService } from './services/taskService.js';
+import type { CrawlerApplicationFacade } from './application/services/crawlerApplicationFacade.js';
+import { errorHandler } from './presentation/http/middleware/errorHandler.js';
+import { createSourceRouter } from './presentation/http/routes/sources.js';
+import { createTaskRouter } from './presentation/http/routes/tasks.js';
 import { createAttachmentDisposition } from './utils.js';
 
-export function createApp(taskService: TaskService, eventBus: EventBus) {
+export function createApp(application: CrawlerApplicationFacade) {
   const app = express();
 
   app.use(cors());
@@ -16,11 +16,19 @@ export function createApp(taskService: TaskService, eventBus: EventBus) {
     response.json({ ok: true, timestamp: new Date().toISOString() });
   });
 
-  app.use('/api/sources', createSourceRouter(taskService));
-  app.use('/api/tasks', createTaskRouter(taskService, eventBus));
+  app.get('/api/health/deep', (_request, response) => {
+    response.json({
+      ok: true,
+      service: 'crawler-core',
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.use('/api/sources', createSourceRouter(application));
+  app.use('/api/tasks', createTaskRouter(application));
   app.get('/api/artifacts/:artifactId/download', async (request, response, next) => {
     try {
-      const { artifact, buffer } = await taskService.downloadArtifact(request.params.artifactId);
+      const { artifact, buffer } = await application.downloadArtifact(request.params.artifactId);
       response.setHeader('Content-Type', artifact.contentType);
       response.setHeader('Content-Disposition', createAttachmentDisposition(artifact.fileName));
       response.send(buffer);
@@ -31,17 +39,13 @@ export function createApp(taskService: TaskService, eventBus: EventBus) {
 
   app.get('/api/artifacts/:artifactId/preview', async (request, response, next) => {
     try {
-      response.json(await taskService.previewArtifact(request.params.artifactId));
+      response.json(await application.previewArtifact(request.params.artifactId));
     } catch (error) {
       next(error);
     }
   });
 
-  app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
-    void next;
-    const message = error instanceof Error ? error.message : 'Unknown server error';
-    response.status(500).json({ message });
-  });
+  app.use(errorHandler);
 
   return app;
 }

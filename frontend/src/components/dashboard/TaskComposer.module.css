@@ -150,11 +150,14 @@
   position: relative;
   overflow-x: auto;
   overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: contain;
   margin: 2px -2px 0;
   padding: 2px 2px 8px;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: pan-x;
   scrollbar-width: thin;
   scrollbar-color: rgba(100, 116, 139, 0.65) transparent;
   mask-image: linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);

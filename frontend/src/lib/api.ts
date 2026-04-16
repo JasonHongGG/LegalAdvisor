@@ -1,10 +1,11 @@
 import type {
-  ArtifactPreviewPayload,
-  CrawlSourceRecord,
-  CrawlTaskDetail,
-  CrawlTaskSummary,
-  CreateTaskRequest,
-  TaskControlResponse,
+  ArtifactPreviewDto,
+  CreateTaskRequestDto,
+  SourceOverviewDto,
+  TaskControlResponseDto,
+  TaskDetailDto,
+  TaskStreamEvent,
+  TaskSummaryDto,
 } from '@legaladvisor/shared';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -28,40 +29,40 @@ async function requestJson<T>(path: string, init?: RequestInit) {
 
 export const api = {
   listSources() {
-    return requestJson<CrawlSourceRecord[]>('/sources');
+    return requestJson<SourceOverviewDto[]>('/sources');
   },
   refreshSources() {
-    return requestJson<CrawlSourceRecord[]>('/sources/refresh', { method: 'POST' });
+    return requestJson<SourceOverviewDto[]>('/sources/refresh', { method: 'POST' });
   },
   listTasks() {
-    return requestJson<CrawlTaskSummary[]>('/tasks');
+    return requestJson<TaskSummaryDto[]>('/tasks');
   },
   getTask(taskId: string) {
-    return requestJson<CrawlTaskDetail | null>(`/tasks/${taskId}`);
+    return requestJson<TaskDetailDto | null>(`/tasks/${taskId}`);
   },
-  createTask(input: CreateTaskRequest) {
-    return requestJson<CrawlTaskDetail>('/tasks', {
+  createTask(input: CreateTaskRequestDto) {
+    return requestJson<TaskDetailDto>('/tasks', {
       method: 'POST',
       body: JSON.stringify(input),
     });
   },
   pauseTask(taskId: string) {
-    return requestJson<TaskControlResponse>(`/tasks/${taskId}/pause`, { method: 'POST' });
+    return requestJson<TaskControlResponseDto>(`/tasks/${taskId}/pause`, { method: 'POST' });
   },
   resumeTask(taskId: string) {
-    return requestJson<TaskControlResponse>(`/tasks/${taskId}/resume`, { method: 'POST' });
+    return requestJson<TaskControlResponseDto>(`/tasks/${taskId}/resume`, { method: 'POST' });
   },
   cancelTask(taskId: string) {
-    return requestJson<TaskControlResponse>(`/tasks/${taskId}/cancel`, { method: 'POST' });
+    return requestJson<TaskControlResponseDto>(`/tasks/${taskId}/cancel`, { method: 'POST' });
   },
   retryFailed(taskId: string) {
-    return requestJson<TaskControlResponse>(`/tasks/${taskId}/retry-failed`, { method: 'POST' });
+    return requestJson<TaskControlResponseDto>(`/tasks/${taskId}/retry-failed`, { method: 'POST' });
   },
   artifactDownloadUrl(artifactId: string) {
     return `${API_BASE}/artifacts/${artifactId}/download`;
   },
   getArtifactPreview(artifactId: string) {
-    return requestJson<ArtifactPreviewPayload>(`/artifacts/${artifactId}/preview`);
+    return requestJson<ArtifactPreviewDto>(`/artifacts/${artifactId}/preview`);
   },
   manifestDownloadUrl(taskId: string) {
     return `${API_BASE}/tasks/${taskId}/manifest/download`;
@@ -71,5 +72,8 @@ export const api = {
   },
   createTaskStream() {
     return new EventSource(`${API_BASE}/tasks/stream`);
+  },
+  parseTaskStreamEvent(value: string) {
+    return JSON.parse(value) as TaskStreamEvent;
   },
 };

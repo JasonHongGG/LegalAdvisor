@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { ArtifactPreviewPayload } from '@legaladvisor/shared';
+import type { ArtifactPreviewDto } from '@legaladvisor/shared';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AlertTriangle, Download, Eye, FileJson, FileText, X } from 'lucide-react';
@@ -12,7 +12,7 @@ type ArtifactPreviewProps = {
   open: boolean;
   isLoading: boolean;
   errorMessage: string | null;
-  preview: ArtifactPreviewPayload | null;
+  preview: ArtifactPreviewDto | null;
   onClose: () => void;
   onDownload: (artifactId: string) => void;
 };

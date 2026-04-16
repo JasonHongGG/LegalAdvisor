@@ -69,7 +69,7 @@ export const eventTypes = [
 ] as const;
 export type EventType = (typeof eventTypes)[number];
 
-export interface SourceUiField {
+export interface SourceFormFieldDto {
   name: string;
   label: string;
   type: 'text' | 'number' | 'url' | 'checkbox';
@@ -78,7 +78,7 @@ export interface SourceUiField {
   description?: string;
 }
 
-export interface SourceDefinition {
+export interface SourceOverviewDto {
   id: SourceId;
   name: string;
   shortName: string;
@@ -87,9 +87,14 @@ export interface SourceDefinition {
   baseUrl: string;
   description: string;
   notes: string;
-  supportedTargetKinds: TargetKind[];
+  healthStatus: SourceHealthStatus;
+  rateLimitStatus: RateLimitStatus;
+  todayRequestCount: number;
+  recommendedConcurrency: number;
+  lastCheckedAt: string | null;
+  lastErrorMessage: string | null;
   capabilities: string[];
-  taskBuilderFields: SourceUiField[];
+  taskBuilderFields: SourceFormFieldDto[];
 }
 
 export interface LawTargetConfig {
@@ -116,26 +121,7 @@ export interface JudgmentDatasetTargetConfig {
 
 export type TaskTargetConfig = LawTargetConfig | JudicialListTargetConfig | JudgmentDatasetTargetConfig;
 
-export interface CrawlSourceRecord {
-  id: SourceId;
-  name: string;
-  shortName: string;
-  sourceType: 'api' | 'site' | 'dataset';
-  implementationMode: 'stable' | 'preview';
-  baseUrl: string;
-  description: string;
-  notes: string;
-  healthStatus: SourceHealthStatus;
-  rateLimitStatus: RateLimitStatus;
-  todayRequestCount: number;
-  recommendedConcurrency: number;
-  lastCheckedAt: string | null;
-  lastErrorMessage: string | null;
-  capabilities: string[];
-  taskBuilderFields: SourceUiField[];
-}
-
-export interface CrawlTaskTarget {
+export interface TaskTargetDto {
   id: string;
   taskId: string;
   targetKind: TargetKind;
@@ -144,7 +130,7 @@ export interface CrawlTaskTarget {
   createdAt: string;
 }
 
-export interface CrawlArtifact {
+export interface ArtifactDto {
   id: string;
   taskId: string;
   workItemId: string | null;
@@ -159,8 +145,8 @@ export interface CrawlArtifact {
   createdAt: string;
 }
 
-export interface ArtifactPreviewPayload {
-  artifact: CrawlArtifact;
+export interface ArtifactPreviewDto {
+  artifact: ArtifactDto;
   previewKind: ArtifactPreviewKind;
   content: string | null;
   encoding: 'utf-8' | null;
@@ -169,7 +155,7 @@ export interface ArtifactPreviewPayload {
   lineCount: number | null;
 }
 
-export interface CrawlEvent {
+export interface TaskEventDto {
   id: string;
   taskId: string;
   workItemId: string | null;
@@ -180,7 +166,7 @@ export interface CrawlEvent {
   occurredAt: string;
 }
 
-export interface CrawlWorkItem {
+export interface WorkItemDto {
   id: string;
   taskId: string;
   taskTargetId: string | null;
@@ -200,11 +186,19 @@ export interface CrawlWorkItem {
   startedAt: string | null;
   finishedAt: string | null;
   updatedAt: string;
-  artifacts: CrawlArtifact[];
-  recentEvents: CrawlEvent[];
+  artifacts: ArtifactDto[];
+  recentEvents: TaskEventDto[];
 }
 
-export interface CrawlManifest {
+export interface CheckpointDto {
+  id: string;
+  workItemId: string | null;
+  checkpointKey: string;
+  cursor: Record<string, unknown>;
+  updatedAt: string;
+}
+
+export interface TaskManifestDto {
   schemaVersion: string;
   taskId: string;
   sourceId: SourceId;
@@ -236,7 +230,7 @@ export interface CrawlManifest {
   }>;
 }
 
-export interface CrawlTaskSummary {
+export interface TaskSummaryDto {
   id: string;
   sourceId: SourceId;
   sourceName: string;
@@ -256,36 +250,23 @@ export interface CrawlTaskSummary {
   updatedAt: string;
   lastEventAt: string | null;
   etaSeconds: number | null;
-  targets: CrawlTaskTarget[];
+  targets: TaskTargetDto[];
 }
 
-export interface CrawlTaskDetail extends CrawlTaskSummary {
-  workItems: CrawlWorkItem[];
-  recentEvents: CrawlEvent[];
-  artifacts: CrawlArtifact[];
-  checkpoints: Array<{
-    id: string;
-    workItemId: string | null;
-    checkpointKey: string;
-    cursor: Record<string, unknown>;
-    updatedAt: string;
-  }>;
-  manifest: CrawlManifest | null;
+export interface TaskDetailDto extends TaskSummaryDto {
+  workItems: WorkItemDto[];
+  recentEvents: TaskEventDto[];
+  artifacts: ArtifactDto[];
+  checkpoints: CheckpointDto[];
+  manifest: TaskManifestDto | null;
 }
 
-export interface CreateTaskRequest {
+export interface CreateTaskRequestDto {
   sourceId: SourceId;
   targets: TaskTargetConfig[];
 }
 
-export interface TaskControlResponse {
+export interface TaskControlResponseDto {
   taskId: string;
   status: TaskStatus;
-}
-
-export interface EventStreamPayload {
-  kind: 'heartbeat' | 'task-updated' | 'task-created' | 'source-updated';
-  taskId?: string;
-  sourceId?: SourceId;
-  occurredAt: string;
 }
