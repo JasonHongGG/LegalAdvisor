@@ -13,8 +13,6 @@ describe('taskComposer domain helpers', () => {
       description: 'desc',
       notes: 'notes',
       healthStatus: 'healthy',
-      rateLimitStatus: 'normal',
-      todayRequestCount: 0,
       recommendedConcurrency: 1,
       lastCheckedAt: null,
       lastErrorMessage: null,

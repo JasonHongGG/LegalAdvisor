@@ -88,7 +88,6 @@ export class MojLawAdapter implements SourceAdapter {
     const response = await httpClient.get('https://law.moj.gov.tw/api/ch/law/json', {
       insecureTls: true,
     });
-    await context.incrementSourceRequestCount();
 
     const zip = new AdmZip(response.buffer);
     const jsonEntry = zip.getEntry('ChLaw.json');
@@ -130,78 +129,33 @@ export class MojLawAdapter implements SourceAdapter {
     let processed = 0;
     for (const record of matchedLaws) {
       processed += 1;
-      const baseName = `${record.LawName}-${record.LawModifiedDate || 'latest'}`;
-      const sourceSnapshot = {
-        schemaVersion: '1.0.0',
-        source: this.sourceId,
-        updateDate: archive.UpdateDate,
-        law: {
-          level: record.LawLevel,
-          name: record.LawName,
-          url: record.LawURL,
-          category: record.LawCategory,
-          modifiedDate: record.LawModifiedDate,
-          effectiveDate: record.LawEffectiveDate,
-          effectiveNote: record.LawEffectiveNote,
-          abandonNote: record.LawAbandonNote,
-          hasEnglishVersion: record.LawHasEngVersion === 'Y',
-          englishName: record.EngLawName,
-        },
-      };
-      const articleSnapshot = {
-        schemaVersion: '1.0.0',
-        source: this.sourceId,
+      const contentResult = await context.persistLawArtifacts({
         lawName: record.LawName,
-        articles: record.LawArticles.map((article) => ({
+        lawLevel: record.LawLevel,
+        lawUrl: record.LawURL,
+        category: record.LawCategory,
+        modifiedDate: record.LawModifiedDate,
+        effectiveDate: record.LawEffectiveDate,
+        effectiveNote: normalizeWhitespace(record.LawEffectiveNote || ''),
+        abandonNote: normalizeWhitespace(record.LawAbandonNote || ''),
+        hasEnglishVersion: record.LawHasEngVersion === 'Y',
+        englishName: record.EngLawName,
+        sourceUpdateDate: archive.UpdateDate,
+        query: target.query,
+        exactMatch: target.exactMatch,
+        articleEntries: record.LawArticles.map((article) => ({
           type: article.ArticleType,
           no: article.ArticleNo,
           content: normalizeWhitespace(article.ArticleContent),
         })),
-      };
-      const revisionSnapshot = {
-        schemaVersion: '1.0.0',
-        source: this.sourceId,
-        lawName: record.LawName,
-        modifiedDate: record.LawModifiedDate,
-        effectiveDate: record.LawEffectiveDate,
-        effectiveNote: normalizeWhitespace(record.LawEffectiveNote || ''),
         histories: normalizeWhitespace(record.LawHistories || ''),
-      };
-      const crossReferenceSnapshot = {
-        schemaVersion: '1.0.0',
-        source: this.sourceId,
-        lawName: record.LawName,
-        attachments: record.LawAttachements,
-        lawUrl: record.LawURL,
-      };
-
-      await context.writeJsonArtifact('law_source_snapshot', `${baseName}-source`, sourceSnapshot, {
-        lawName: record.LawName,
-      });
-      await context.writeJsonArtifact('law_article_snapshot', `${baseName}-articles`, articleSnapshot, {
-        lawName: record.LawName,
-      });
-      await context.writeJsonArtifact('law_revision_snapshot', `${baseName}-revisions`, revisionSnapshot, {
-        lawName: record.LawName,
-      });
-      await context.writeJsonArtifact('law_cross_reference_snapshot', `${baseName}-crossrefs`, crossReferenceSnapshot, {
-        lawName: record.LawName,
-      });
-      await context.writeMarkdownArtifact('law_document_snapshot', `${baseName}-document`, renderLawMarkdown(record), {
-        lawName: record.LawName,
-      });
-
-      await context.checkpoint('law-match-index', {
-        query: target.query,
-        processed,
-        matchedCount: matchedLaws.length,
-        latestLawName: record.LawName,
+        documentMarkdown: renderLawMarkdown(record),
       });
       await context.updateWorkItem({
         progress: 45 + (processed / matchedLaws.length) * 45,
         itemsProcessed: processed,
         itemsTotal: matchedLaws.length,
-        lastMessage: `已輸出 ${record.LawName}`,
+        lastMessage: contentResult.contentStatus === 'new' ? `已建立 ${record.LawName} 新版本` : `已重用 ${record.LawName} 既有版本`,
         sourceLocator: record.LawURL,
         cursor: {
           query: target.query,
@@ -209,13 +163,13 @@ export class MojLawAdapter implements SourceAdapter {
           matchedCount: matchedLaws.length,
         },
       });
-      await context.emit('info', 'artifact-emitted', `已輸出 ${record.LawName} 的法規快照。`, {
+      await context.emit('info', 'artifact-emitted', `已完成 ${record.LawName} 的法規版本處理。`, {
         processed,
         total: matchedLaws.length,
+        contentStatus: contentResult.contentStatus,
       });
     }
 
-    await context.markRateLimit('normal');
     await context.updateWorkItem({
       status: 'done',
       progress: 100,

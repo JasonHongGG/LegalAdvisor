@@ -40,6 +40,27 @@
   padding-right: 4px;
 }
 
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+}
+
+.groupList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .empty {
   display: grid;
   place-items: center;
@@ -113,6 +134,22 @@
   color: var(--text-secondary);
 }
 
+.itemMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.itemBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
 .itemAction {
   color: var(--text-muted);
 }
@@ -121,12 +158,20 @@
   color: #93c5fd;
 }
 
-.markdown .itemMarker {
-  color: #c4b5fd;
+.machineSource .itemMarker {
+  color: #60a5fa;
 }
 
-.manifest .itemMarker {
-  color: #fcd34d;
+.provenance .itemMarker {
+  color: #34d399;
+}
+
+.versionEvidence .itemMarker {
+  color: #f59e0b;
+}
+
+.markdown .itemMarker {
+  color: #c4b5fd;
 }
 
 @media (max-width: 720px) {

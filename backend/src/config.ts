@@ -16,14 +16,9 @@ const envSchema = z
   .object({
     PORT: z.coerce.number().int().min(1).max(65535).default(4000),
     DATABASE_WRITE_MODE: z.enum(['enabled', 'disabled']).default('enabled'),
-    SUPABASE_URL: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().url().optional()),
     SUPABASE_DB_URL: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().min(1).optional()),
-    SUPABASE_SERVICE_ROLE: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().min(1).optional()),
     SUPABASE_SCHEMA: schemaName.default('legal_advisor'),
     SUPABASE_QUEUE_SCHEMA: schemaName.default('legal_advisor_queue'),
-    SUPABASE_STORAGE_BUCKET: z.string().min(1).default('legal-advisor-artifacts'),
-    OUTPUT_STORAGE_MODE: z.enum(['supabase', 'local']).default('local'),
-    LOCAL_ARTIFACT_DIR: z.string().min(1).default('.artifacts'),
     SOURCE_FETCH_INSECURE_TLS: z
       .string()
       .optional()
@@ -37,28 +32,15 @@ const envSchema = z
         message: 'DATABASE_WRITE_MODE=enabled 時必須提供 SUPABASE_DB_URL。',
       });
     }
-
-    if (value.OUTPUT_STORAGE_MODE === 'supabase' && (!value.SUPABASE_URL || !value.SUPABASE_SERVICE_ROLE)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['OUTPUT_STORAGE_MODE'],
-        message: 'OUTPUT_STORAGE_MODE=supabase 時必須提供 SUPABASE_URL 與 SUPABASE_SERVICE_ROLE。',
-      });
-    }
   });
 
 export interface AppConfig {
   port: number;
   databaseWriteMode: 'enabled' | 'disabled';
   databaseWritesEnabled: boolean;
-  supabaseUrl: string | null;
   supabaseDbUrl: string | null;
-  supabaseServiceRole: string | null;
   supabaseSchema: string;
   supabaseQueueSchema: string;
-  supabaseStorageBucket: string;
-  outputStorageMode: 'supabase' | 'local';
-  localArtifactDir: string;
   sourceFetchInsecureTls: boolean;
 }
 
@@ -84,14 +66,9 @@ export function loadConfig(): AppConfig {
     port: parsed.data.PORT,
     databaseWriteMode: parsed.data.DATABASE_WRITE_MODE,
     databaseWritesEnabled: parsed.data.DATABASE_WRITE_MODE === 'enabled',
-    supabaseUrl: parsed.data.SUPABASE_URL ?? null,
     supabaseDbUrl: parsed.data.SUPABASE_DB_URL ?? null,
-    supabaseServiceRole: parsed.data.SUPABASE_SERVICE_ROLE ?? null,
     supabaseSchema: parsed.data.SUPABASE_SCHEMA,
     supabaseQueueSchema: parsed.data.SUPABASE_QUEUE_SCHEMA,
-    supabaseStorageBucket: parsed.data.SUPABASE_STORAGE_BUCKET,
-    outputStorageMode: parsed.data.OUTPUT_STORAGE_MODE,
-    localArtifactDir: parsed.data.LOCAL_ARTIFACT_DIR,
     sourceFetchInsecureTls: parsed.data.SOURCE_FETCH_INSECURE_TLS,
   };
 

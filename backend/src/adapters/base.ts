@@ -14,7 +14,6 @@ export interface AdapterContext {
   workItemId: string;
   source: SourceOverviewDto;
   target: TaskTargetConfig;
-  getCheckpoint(checkpointKey: string): Record<string, unknown> | null;
   updateWorkItem(patch: {
     status?: WorkItemDto['status'];
     progress?: number;
@@ -31,11 +30,34 @@ export interface AdapterContext {
     finishedAt?: string | null;
   }): Promise<void>;
   emit(level: EventLevel, eventType: EventType, message: string, details?: Record<string, unknown>): Promise<void>;
-  checkpoint(checkpointKey: string, cursor: Record<string, unknown>): Promise<void>;
   writeJsonArtifact(artifactKind: ArtifactKind, baseName: string, data: unknown, metadata?: Record<string, unknown>): Promise<ArtifactWriteResult>;
   writeMarkdownArtifact(artifactKind: ArtifactKind, baseName: string, content: string, metadata?: Record<string, unknown>): Promise<ArtifactWriteResult>;
-  markRateLimit(status: 'normal' | 'throttled' | 'blocked', message?: string): Promise<void>;
-  incrementSourceRequestCount(amount?: number): Promise<void>;
+  persistLawArtifacts(input: {
+    lawName: string;
+    lawLevel: string;
+    lawUrl: string;
+    category: string;
+    modifiedDate: string;
+    effectiveDate: string;
+    effectiveNote: string;
+    abandonNote: string;
+    hasEnglishVersion: boolean;
+    englishName: string;
+    sourceUpdateDate: string;
+    query: string;
+    exactMatch: boolean;
+    articleEntries: Array<{
+      type: string;
+      no: string;
+      content: string;
+    }>;
+    histories: string;
+    documentMarkdown: string;
+  }): Promise<{
+    contentStatus: 'new' | 'reused';
+    canonicalDocumentId: string;
+    canonicalVersionId: string;
+  }>;
 }
 
 export interface SourceAdapter {

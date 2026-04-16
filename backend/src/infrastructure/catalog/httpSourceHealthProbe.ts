@@ -8,13 +8,11 @@ export class HttpSourceHealthProbe implements SourceHealthProbe {
       const healthy = response.status >= 200 && response.status < 400;
       return {
         healthStatus: healthy ? ('healthy' as const) : ('degraded' as const),
-        rateLimitStatus: 'normal' as const,
         lastErrorMessage: healthy ? null : `HTTP ${response.status}`,
       };
     } catch (error) {
       return {
         healthStatus: 'down' as const,
-        rateLimitStatus: 'unknown' as const,
         lastErrorMessage: error instanceof Error ? error.message : 'Unknown health check error',
       };
     }

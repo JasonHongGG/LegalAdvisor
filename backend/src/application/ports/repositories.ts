@@ -1,5 +1,6 @@
 import type {
   ArtifactDto,
+  ArtifactContentStatus,
   CreateTaskRequestDto,
   SourceId,
   SourceOverviewDto,
@@ -12,29 +13,100 @@ import type { SourceCatalogEntry } from '../../domain/sourceCatalog.js';
 
 export type SourceHealthPatch = {
   healthStatus: SourceOverviewDto['healthStatus'];
-  rateLimitStatus: SourceOverviewDto['rateLimitStatus'];
   lastCheckedAt: string;
   lastErrorMessage?: string | null;
 };
 
-export type InsertArtifactInput = Omit<ArtifactDto, 'createdAt'> & { createdAt?: string };
 export type InsertEventInput = Omit<TaskEventDto, 'occurredAt'> & { occurredAt?: string };
 
-export type UpsertCheckpointInput = {
+export type EnsureArtifactContentInput = {
+  hashSha256: string;
+  contentType: string;
+  sizeBytes: number;
+  encoding: 'utf-8' | null;
+  buffer: Buffer;
+  createdAt?: string;
+};
+
+export type ArtifactContentRecord = {
+  id: string;
+  hashSha256: string;
+  contentType: string;
+  sizeBytes: number;
+  encoding: 'utf-8' | null;
+};
+
+export type InsertArtifactInput = {
+  id: string;
+  taskId: string;
+  workItemId: string | null;
+  artifactKind: ArtifactDto['artifactKind'];
+  artifactRole: ArtifactDto['artifactRole'];
+  contentStatus: ArtifactDto['contentStatus'];
+  canonicalDocumentId: string | null;
+  canonicalVersionId: string | null;
+  fileName: string;
+  contentId: string;
+  contentType: string;
+  sizeBytes: number;
+  hashSha256: string;
+  schemaVersion: string;
+  metadata: Record<string, unknown>;
+  createdAt?: string;
+};
+
+export type CanonicalLawDocumentInput = {
+  sourceId: SourceId;
+  lawName: string;
+  normalizedLawName: string;
+  englishName: string | null;
+  lawLevel: string | null;
+  category: string | null;
+  lawUrl: string;
+};
+
+export type CanonicalLawVersionInput = {
+  lawDocumentId: string;
+  sourceId: SourceId;
+  lawName: string;
+  modifiedDate: string | null;
+  effectiveDate: string | null;
+  sourceUpdateDate: string | null;
+  versionFingerprint: string;
+};
+
+export type CanonicalArtifactInput = {
+  id: string;
+  lawDocumentId: string;
+  lawVersionId: string;
+  artifactKind: ArtifactDto['artifactKind'];
+  artifactRole: ArtifactDto['artifactRole'];
+  fileName: string;
+  contentId: string;
+  contentType: string;
+  sizeBytes: number;
+  hashSha256: string;
+  schemaVersion: string;
+  metadata: Record<string, unknown>;
+  createdAt?: string;
+};
+
+export type LinkedTaskArtifactInput = {
   id?: string;
   taskId: string;
   workItemId: string | null;
-  checkpointKey: string;
-  cursor: Record<string, unknown>;
-  updatedAt?: string;
+  lawDocumentId: string;
+  lawVersionId: string;
+  canonicalArtifactId: string;
+  contentStatus: Extract<ArtifactContentStatus, 'new' | 'reused'>;
+  createdAt?: string;
 };
 
-export type RunSummaryInput = {
-  successCount: number;
-  failedCount: number;
-  skippedCount: number;
-  warningCount: number;
-  metadata: Record<string, unknown>;
+export type CanonicalLawVersionMatch = {
+  lawDocumentId: string;
+  lawVersionId: string;
+  versionFingerprint: string;
+  artifacts: ArtifactDto[];
 };
 
 export type WorkItemPatch = {
@@ -58,7 +130,6 @@ export interface SourceRepository {
   listSources(): Promise<SourceOverviewDto[]>;
   getSourceById(sourceId: SourceId): Promise<SourceOverviewDto | null>;
   updateSourceHealth(sourceId: SourceId, patch: SourceHealthPatch): Promise<void>;
-  incrementSourceRequestCount(sourceId: SourceId, amount?: number): Promise<void>;
 }
 
 export interface TaskRepository {
@@ -67,22 +138,23 @@ export interface TaskRepository {
   getTaskDetail(taskId: string): Promise<TaskDetailDto | null>;
   getTaskStatus(taskId: string): Promise<TaskStatus | null>;
   setTaskStatus(taskId: string, status: TaskStatus, summary?: string): Promise<void>;
-  updateTaskManifest(taskId: string, manifestArtifactId: string): Promise<void>;
-  upsertRunSummary(taskId: string, manifestArtifactId: string | null, summary: RunSummaryInput): Promise<void>;
   updateWorkItem(workItemId: string, patch: WorkItemPatch): Promise<void>;
   resetFailedWorkItems(taskId: string): Promise<void>;
   recomputeTaskStats(taskId: string): Promise<void>;
 }
 
 export interface ArtifactRepository {
+  ensureArtifactContent(input: EnsureArtifactContentInput): Promise<ArtifactContentRecord>;
   insertArtifact(input: InsertArtifactInput): Promise<ArtifactDto>;
   getArtifact(artifactId: string): Promise<ArtifactDto | null>;
+  getArtifactContent(artifactId: string): Promise<Buffer | null>;
+  ensureCanonicalLawDocument(input: CanonicalLawDocumentInput): Promise<string>;
+  findCanonicalLawVersion(sourceId: SourceId, normalizedLawName: string, versionFingerprint: string): Promise<CanonicalLawVersionMatch | null>;
+  createCanonicalLawVersion(input: CanonicalLawVersionInput): Promise<string>;
+  insertCanonicalArtifact(input: CanonicalArtifactInput): Promise<ArtifactDto>;
+  linkTaskArtifact(input: LinkedTaskArtifactInput): Promise<ArtifactDto>;
 }
 
 export interface EventRepository {
   appendEvent(input: InsertEventInput): Promise<void>;
-}
-
-export interface CheckpointRepository {
-  upsertCheckpoint(input: UpsertCheckpointInput): Promise<void>;
 }

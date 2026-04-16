@@ -28,7 +28,6 @@ export class JudgmentDatasetAdapter implements SourceAdapter {
     await context.emit('info', 'work-item-status', '開始下載裁判書開放資料。', { fileSetId: target.fileSetId });
 
     const response = await httpClient.get(url.toString(), { insecureTls: true });
-    await context.incrementSourceRequestCount();
     const contentType = response.headers['content-type'] ?? 'application/octet-stream';
 
     let normalized: unknown;
@@ -81,12 +80,6 @@ export class JudgmentDatasetAdapter implements SourceAdapter {
     } else {
       throw new Error(`第一版僅支援 JSON/CSV 型 fileset，收到的 content-type 為 ${contentType}`);
     }
-
-    await context.checkpoint('judgment-dataset', {
-      fileSetId: target.fileSetId,
-      top: target.top ?? null,
-      skip: target.skip ?? null,
-    });
     await context.updateWorkItem({ status: 'writing_output', currentStage: 'writing_output', progress: 85, lastMessage: '寫入裁判資料快照中' });
 
     await context.writeJsonArtifact('judgment_source_snapshot', `${target.label}-dataset`, normalized, {
@@ -97,7 +90,6 @@ export class JudgmentDatasetAdapter implements SourceAdapter {
       fileSetId: target.fileSetId,
       contentType,
     });
-    await context.markRateLimit('normal');
     await context.updateWorkItem({
       status: 'done',
       currentStage: 'done',

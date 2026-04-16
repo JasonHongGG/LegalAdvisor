@@ -12,6 +12,7 @@
     "dev": "concurrently -k -n frontend,backend \"npm run dev -w @legaladvisor/frontend\" \"npm run dev -w @legaladvisor/backend\"",
     "dev:frontend": "npm run dev -w @legaladvisor/frontend",
     "dev:backend": "npm run dev -w @legaladvisor/backend",
+    "db:migrate": "npm run db:migrate -w @legaladvisor/backend",
     "build": "npm run build -w @legaladvisor/shared && npm run build -w @legaladvisor/backend && npm run build -w @legaladvisor/frontend",
     "lint": "npm run lint -w @legaladvisor/shared && npm run lint -w @legaladvisor/backend && npm run lint -w @legaladvisor/frontend",
     "typecheck": "npm run typecheck -w @legaladvisor/shared && npm run typecheck -w @legaladvisor/backend && npm run typecheck -w @legaladvisor/frontend",

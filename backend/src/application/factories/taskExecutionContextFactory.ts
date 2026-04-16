@@ -7,9 +7,10 @@ import type {
   TaskTargetConfig,
   WorkItemDto,
 } from '@legaladvisor/shared';
-import type { ArtifactRepository, CheckpointRepository, SourceRepository, TaskRepository } from '../ports/repositories.js';
+import type { ArtifactRepository, TaskRepository } from '../ports/repositories.js';
 import type { ArtifactStoragePort, TaskExecutionReporter } from '../ports/runtime.js';
 import type { ArtifactWriteResult } from '../ports/runtime.js';
+import type { LawArtifactRegistryService } from '../services/lawArtifactRegistryService.js';
 import { createId } from '../../utils.js';
 
 type TaskExecutionContext = {
@@ -17,7 +18,6 @@ type TaskExecutionContext = {
   workItemId: string;
   source: SourceOverviewDto;
   target: TaskTargetConfig;
-  getCheckpoint(checkpointKey: string): Record<string, unknown> | null;
   updateWorkItem(patch: {
     status?: WorkItemDto['status'];
     progress?: number;
@@ -34,21 +34,43 @@ type TaskExecutionContext = {
     finishedAt?: string | null;
   }): Promise<void>;
   emit(level: EventLevel, eventType: EventType, message: string, details?: Record<string, unknown>): Promise<void>;
-  checkpoint(checkpointKey: string, cursor: Record<string, unknown>): Promise<void>;
   writeJsonArtifact(artifactKind: ArtifactKind, baseName: string, data: unknown, metadata?: Record<string, unknown>): Promise<ArtifactWriteResult>;
   writeMarkdownArtifact(artifactKind: ArtifactKind, baseName: string, content: string, metadata?: Record<string, unknown>): Promise<ArtifactWriteResult>;
-  markRateLimit(status: 'normal' | 'throttled' | 'blocked', message?: string): Promise<void>;
-  incrementSourceRequestCount(amount?: number): Promise<void>;
+  persistLawArtifacts(input: {
+    lawName: string;
+    lawLevel: string;
+    lawUrl: string;
+    category: string;
+    modifiedDate: string;
+    effectiveDate: string;
+    effectiveNote: string;
+    abandonNote: string;
+    hasEnglishVersion: boolean;
+    englishName: string;
+    sourceUpdateDate: string;
+    query: string;
+    exactMatch: boolean;
+    articleEntries: Array<{
+      type: string;
+      no: string;
+      content: string;
+    }>;
+    histories: string;
+    documentMarkdown: string;
+  }): Promise<{
+    contentStatus: 'new' | 'reused';
+    canonicalDocumentId: string;
+    canonicalVersionId: string;
+  }>;
 };
 
 export class TaskExecutionContextFactory {
   constructor(
     private readonly taskRepository: TaskRepository,
     private readonly artifactRepository: ArtifactRepository,
-    private readonly checkpointRepository: CheckpointRepository,
-    private readonly sourceRepository: SourceRepository,
     private readonly artifactStorage: ArtifactStoragePort,
     private readonly taskActivityReporter: TaskExecutionReporter,
+    private readonly lawArtifactRegistry: LawArtifactRegistryService,
   ) {}
 
   async create(params: {
@@ -57,18 +79,11 @@ export class TaskExecutionContextFactory {
     source: SourceOverviewDto;
     target: TaskTargetConfig;
   }): Promise<TaskExecutionContext> {
-    const checkpointCache = new Map(
-      params.task.checkpoints
-        .filter((checkpoint) => checkpoint.workItemId === params.workItem.id)
-        .map((checkpoint) => [checkpoint.checkpointKey, checkpoint.cursor]),
-    );
-
     return {
       taskId: params.task.id,
       workItemId: params.workItem.id,
       source: params.source,
       target: params.target,
-      getCheckpoint: (checkpointKey) => checkpointCache.get(checkpointKey) ?? null,
       updateWorkItem: async (patch) => {
         const currentTask = await this.requireTask(params.task.id);
         const currentWorkItem = currentTask.workItems.find((entry) => entry.id === params.workItem.id) ?? null;
@@ -108,19 +123,6 @@ export class TaskExecutionContextFactory {
         await this.taskActivityReporter.appendTaskEvent(params.task.id, params.workItem.id, eventType, level, message, details);
         this.taskActivityReporter.publishTaskUpdated(params.task.id);
       },
-      checkpoint: async (checkpointKey, cursor) => {
-        checkpointCache.set(checkpointKey, cursor);
-        await this.checkpointRepository.upsertCheckpoint({
-          taskId: params.task.id,
-          workItemId: params.workItem.id,
-          checkpointKey,
-          cursor,
-        });
-        await this.taskActivityReporter.appendTaskEvent(params.task.id, params.workItem.id, 'checkpoint-updated', 'info', `Checkpoint 已更新：${checkpointKey}`, {
-          checkpointKey,
-          cursor,
-        });
-      },
       writeJsonArtifact: async (artifactKind, baseName, data, metadata = {}) => {
         const stored = await this.artifactStorage.writeJson({
           sourceId: params.source.id,
@@ -147,39 +149,53 @@ export class TaskExecutionContextFactory {
         await this.persistArtifact(params.task.id, params.workItem.id, artifactKind, stored);
         return stored;
       },
-      markRateLimit: async (status, message) => {
-        const currentTaskStatus = await this.taskRepository.getTaskStatus(params.task.id);
-        await this.sourceRepository.updateSourceHealth(params.source.id, {
-          healthStatus: params.source.healthStatus,
-          rateLimitStatus: status,
-          lastCheckedAt: new Date().toISOString(),
-          lastErrorMessage: message ?? null,
+      persistLawArtifacts: async (input) => {
+        const result = await this.lawArtifactRegistry.persistTaskLawArtifacts({
+          ...input,
+          taskId: params.task.id,
+          workItemId: params.workItem.id,
+          sourceId: params.source.id,
         });
 
-        if (status === 'throttled') {
-          await this.taskRepository.setTaskStatus(params.task.id, 'throttled', message ?? '來源限流中');
-        } else if (currentTaskStatus === 'throttled') {
-          await this.taskRepository.setTaskStatus(params.task.id, 'running', '來源恢復正常，繼續執行');
-        }
-
-        this.taskActivityReporter.publishSourceUpdated(params.source.id);
+        await this.taskActivityReporter.appendTaskEvent(
+          params.task.id,
+          params.workItem.id,
+          'artifact-emitted',
+          'info',
+          result.contentStatus === 'new' ? `已建立 ${input.lawName} 的新法條版本。` : `重用既有 ${input.lawName} 法條版本。`,
+          {
+            lawName: input.lawName,
+            contentStatus: result.contentStatus,
+            canonicalDocumentId: result.canonicalDocumentId,
+            canonicalVersionId: result.canonicalVersionId,
+          },
+        );
         this.taskActivityReporter.publishTaskUpdated(params.task.id);
-      },
-      incrementSourceRequestCount: async (amount = 1) => {
-        await this.sourceRepository.incrementSourceRequestCount(params.source.id, amount);
-        this.taskActivityReporter.publishSourceUpdated(params.source.id);
+        return result;
       },
     };
   }
 
   private async persistArtifact(taskId: string, workItemId: string | null, artifactKind: ArtifactKind, stored: ArtifactWriteResult) {
+    const content = await this.artifactRepository.ensureArtifactContent({
+      hashSha256: stored.hashSha256,
+      contentType: stored.contentType,
+      sizeBytes: stored.sizeBytes,
+      encoding: stored.encoding,
+      buffer: stored.buffer,
+    });
+
     await this.artifactRepository.insertArtifact({
       id: createId(),
       taskId,
       workItemId,
       artifactKind,
+      artifactRole: this.inferArtifactRole(artifactKind, stored.metadata),
+      contentStatus: 'task-only',
+      canonicalDocumentId: null,
+      canonicalVersionId: null,
       fileName: stored.fileName,
-      storagePath: stored.storagePath,
+      contentId: content.id,
       contentType: stored.contentType,
       sizeBytes: stored.sizeBytes,
       hashSha256: stored.hashSha256,
@@ -188,8 +204,32 @@ export class TaskExecutionContextFactory {
     });
     await this.taskActivityReporter.appendTaskEvent(taskId, workItemId, 'artifact-emitted', 'info', `已輸出 ${artifactKind}`, {
       fileName: stored.fileName,
-      storagePath: stored.storagePath,
+      hashSha256: stored.hashSha256,
     });
+  }
+
+  private inferArtifactRole(artifactKind: ArtifactKind, metadata: Record<string, unknown>) {
+    const metadataRole = metadata.artifactRole;
+    if (typeof metadataRole === 'string') {
+      return metadataRole as 'machine-source' | 'provenance' | 'version-evidence' | 'review-output' | 'crawler-output' | 'debug';
+    }
+
+    switch (artifactKind) {
+      case 'law_source_snapshot':
+        return 'provenance';
+      case 'law_article_snapshot':
+        return 'machine-source';
+      case 'law_revision_snapshot':
+        return 'version-evidence';
+      case 'law_document_snapshot':
+      case 'judicial_site_markdown':
+      case 'judgment_document_snapshot':
+        return 'review-output';
+      case 'debug_payload':
+        return 'debug';
+      default:
+        return 'crawler-output';
+    }
   }
 
   private buildWorkItemStatusEvent(

@@ -16,7 +16,7 @@ export function isRunnableWorkItemStatus(status: WorkItemStatus) {
 }
 
 export function deriveTaskStatus(workItems: WorkItemDto[], currentStatus: TaskStatus): TaskStatus {
-  if (currentStatus === 'paused' || currentStatus === 'cancelled' || currentStatus === 'throttled') {
+  if (currentStatus === 'paused' || currentStatus === 'cancelled') {
     return currentStatus;
   }
 

@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import {
+  artifactContentStatuses,
   artifactKinds,
   artifactPreviewKinds,
+  artifactRoles,
   eventLevels,
   eventTypes,
-  rateLimitStatuses,
   sourceHealthStatuses,
   sourceIds,
   targetKinds,
@@ -15,10 +16,11 @@ import type { TaskStreamEvent } from '../../contracts/events/v1.js';
 
 export const sourceIdSchema = z.enum(sourceIds);
 export const sourceHealthStatusSchema = z.enum(sourceHealthStatuses);
-export const rateLimitStatusSchema = z.enum(rateLimitStatuses);
 export const taskStatusSchema = z.enum(taskStatuses);
 export const workItemStatusSchema = z.enum(workItemStatuses);
 export const artifactKindSchema = z.enum(artifactKinds);
+export const artifactRoleSchema = z.enum(artifactRoles);
+export const artifactContentStatusSchema = z.enum(artifactContentStatuses);
 export const artifactPreviewKindSchema = z.enum(artifactPreviewKinds);
 export const eventLevelSchema = z.enum(eventLevels);
 export const eventTypeSchema = z.enum(eventTypes);
@@ -76,8 +78,11 @@ export const artifactDtoSchema = z.object({
   taskId: z.string().min(1),
   workItemId: z.string().nullable(),
   artifactKind: artifactKindSchema,
+  artifactRole: artifactRoleSchema,
+  contentStatus: artifactContentStatusSchema,
+  canonicalDocumentId: z.string().nullable(),
+  canonicalVersionId: z.string().nullable(),
   fileName: z.string().min(1),
-  storagePath: z.string().min(1),
   contentType: z.string().min(1),
   sizeBytes: z.number().int().nonnegative(),
   hashSha256: z.string().min(1),
@@ -140,14 +145,6 @@ export const workItemDtoSchema = z.object({
   recentEvents: z.array(taskEventDtoSchema),
 });
 
-export const checkpointDtoSchema = z.object({
-  id: z.string().min(1),
-  workItemId: z.string().nullable(),
-  checkpointKey: z.string().min(1),
-  cursor: z.record(z.string(), z.unknown()),
-  updatedAt: z.string().min(1),
-});
-
 export const taskManifestDtoSchema = z.object({
   schemaVersion: z.string().min(1),
   taskId: z.string().min(1),
@@ -172,8 +169,11 @@ export const taskManifestDtoSchema = z.object({
     z.object({
       id: z.string().min(1),
       kind: artifactKindSchema,
+      role: artifactRoleSchema,
+      contentStatus: artifactContentStatusSchema,
+      canonicalDocumentId: z.string().nullable(),
+      canonicalVersionId: z.string().nullable(),
       fileName: z.string().min(1),
-      storagePath: z.string().min(1),
       hashSha256: z.string().min(1),
     }),
   ),
@@ -196,8 +196,6 @@ export const sourceOverviewDtoSchema = z.object({
   description: z.string().min(1),
   notes: z.string(),
   healthStatus: sourceHealthStatusSchema,
-  rateLimitStatus: rateLimitStatusSchema,
-  todayRequestCount: z.number().int().nonnegative(),
   recommendedConcurrency: z.number().int().positive(),
   lastCheckedAt: z.string().nullable(),
   lastErrorMessage: z.string().nullable(),
@@ -232,7 +230,6 @@ export const taskDetailDtoSchema = taskSummaryDtoSchema.extend({
   workItems: z.array(workItemDtoSchema),
   recentEvents: z.array(taskEventDtoSchema),
   artifacts: z.array(artifactDtoSchema),
-  checkpoints: z.array(checkpointDtoSchema),
   manifest: taskManifestDtoSchema.nullable(),
 });
 

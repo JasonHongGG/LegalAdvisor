@@ -4,16 +4,12 @@ export type SourceId = (typeof sourceIds)[number];
 export const sourceHealthStatuses = ['unknown', 'healthy', 'degraded', 'down'] as const;
 export type SourceHealthStatus = (typeof sourceHealthStatuses)[number];
 
-export const rateLimitStatuses = ['unknown', 'normal', 'throttled', 'blocked'] as const;
-export type RateLimitStatus = (typeof rateLimitStatuses)[number];
-
 export const taskStatuses = [
   'draft',
   'queued',
   'dispatching',
   'running',
   'paused',
-  'throttled',
   'completed',
   'partial_success',
   'failed',
@@ -39,15 +35,26 @@ export const artifactKinds = [
   'law_document_snapshot',
   'law_article_snapshot',
   'law_revision_snapshot',
-  'law_cross_reference_snapshot',
   'judicial_site_snapshot',
   'judicial_site_markdown',
   'judgment_source_snapshot',
   'judgment_document_snapshot',
-  'batch_manifest',
   'debug_payload',
 ] as const;
 export type ArtifactKind = (typeof artifactKinds)[number];
+
+export const artifactRoles = [
+  'machine-source',
+  'provenance',
+  'version-evidence',
+  'review-output',
+  'crawler-output',
+  'debug',
+] as const;
+export type ArtifactRole = (typeof artifactRoles)[number];
+
+export const artifactContentStatuses = ['task-only', 'new', 'reused'] as const;
+export type ArtifactContentStatus = (typeof artifactContentStatuses)[number];
 
 export const artifactPreviewKinds = ['json', 'markdown', 'text', 'unsupported'] as const;
 export type ArtifactPreviewKind = (typeof artifactPreviewKinds)[number];
@@ -64,8 +71,6 @@ export const eventTypes = [
   'work-item-status',
   'log',
   'artifact-emitted',
-  'checkpoint-updated',
-  'rate-limit-update',
 ] as const;
 export type EventType = (typeof eventTypes)[number];
 
@@ -88,8 +93,6 @@ export interface SourceOverviewDto {
   description: string;
   notes: string;
   healthStatus: SourceHealthStatus;
-  rateLimitStatus: RateLimitStatus;
-  todayRequestCount: number;
   recommendedConcurrency: number;
   lastCheckedAt: string | null;
   lastErrorMessage: string | null;
@@ -135,8 +138,11 @@ export interface ArtifactDto {
   taskId: string;
   workItemId: string | null;
   artifactKind: ArtifactKind;
+  artifactRole: ArtifactRole;
+  contentStatus: ArtifactContentStatus;
+  canonicalDocumentId: string | null;
+  canonicalVersionId: string | null;
   fileName: string;
-  storagePath: string;
   contentType: string;
   sizeBytes: number;
   hashSha256: string;
@@ -190,14 +196,6 @@ export interface WorkItemDto {
   recentEvents: TaskEventDto[];
 }
 
-export interface CheckpointDto {
-  id: string;
-  workItemId: string | null;
-  checkpointKey: string;
-  cursor: Record<string, unknown>;
-  updatedAt: string;
-}
-
 export interface TaskManifestDto {
   schemaVersion: string;
   taskId: string;
@@ -219,8 +217,11 @@ export interface TaskManifestDto {
   artifacts: Array<{
     id: string;
     kind: ArtifactKind;
+    role: ArtifactRole;
+    contentStatus: ArtifactContentStatus;
+    canonicalDocumentId: string | null;
+    canonicalVersionId: string | null;
     fileName: string;
-    storagePath: string;
     hashSha256: string;
   }>;
   failures: Array<{
@@ -257,7 +258,6 @@ export interface TaskDetailDto extends TaskSummaryDto {
   workItems: WorkItemDto[];
   recentEvents: TaskEventDto[];
   artifacts: ArtifactDto[];
-  checkpoints: CheckpointDto[];
   manifest: TaskManifestDto | null;
 }
 

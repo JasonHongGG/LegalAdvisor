@@ -34,6 +34,8 @@ export function TaskDetailPanel({
     return <div className={styles.emptyPreview}>建立任務後，這裡會顯示詳細進度與輸出檔案。</div>;
   }
 
+  const versionSummary = taskDetail ? summarizeLawVersionStatus(taskDetail) : null;
+
   return (
     <>
       <div className={styles.previewHeader}>
@@ -46,10 +48,11 @@ export function TaskDetailPanel({
             {activeTask.sourceName} · 開始時間 {formatDateTime(activeTask.startedAt)} · {describeTaskDuration(activeTask, nowTimestamp)}
             {!activeTask.finishedAt && ` · ETA ${formatEta(activeTask.etaSeconds)}`}
           </p>
+          {versionSummary && <p className={styles.previewSubline}>{versionSummary}</p>}
         </div>
 
         <div className={styles.previewActions}>
-          {['queued', 'running', 'dispatching', 'throttled'].includes(activeTask.status) && (
+          {['queued', 'running', 'dispatching'].includes(activeTask.status) && (
             <Button variant="secondary" size="sm" icon={<CirclePause size={16} />} onClick={() => onTaskAction(activeTask.id, 'pause')}>
               暫停
             </Button>
@@ -94,4 +97,32 @@ export function TaskDetailPanel({
       )}
     </>
   );
+}
+
+function summarizeLawVersionStatus(taskDetail: TaskDetailDto) {
+  const canonicalVersions = new Map<string, 'new' | 'reused'>();
+
+  for (const artifact of taskDetail.artifacts) {
+    if (!artifact.canonicalVersionId) {
+      continue;
+    }
+
+    const current = canonicalVersions.get(artifact.canonicalVersionId);
+    if (current === 'new' || artifact.contentStatus === 'new') {
+      canonicalVersions.set(artifact.canonicalVersionId, 'new');
+      continue;
+    }
+
+    if (artifact.contentStatus === 'reused') {
+      canonicalVersions.set(artifact.canonicalVersionId, 'reused');
+    }
+  }
+
+  if (canonicalVersions.size === 0) {
+    return null;
+  }
+
+  const newCount = [...canonicalVersions.values()].filter((status) => status === 'new').length;
+  const reusedCount = [...canonicalVersions.values()].filter((status) => status === 'reused').length;
+  return `法條版本結果 · 新寫入 ${newCount} 筆 · 重用既有版本 ${reusedCount} 筆`;
 }

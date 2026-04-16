@@ -5,7 +5,6 @@ import { isTaskExecutionBlocked, isRunnableWorkItemStatus } from '../../domain/t
 import type { SourceRepository, TaskRepository } from '../ports/repositories.js';
 import type { TaskActivityService } from './taskActivityService.js';
 import type { TaskExecutionContextFactory } from '../factories/taskExecutionContextFactory.js';
-import type { ManifestService } from './manifestService.js';
 
 export class TaskExecutionService {
   constructor(
@@ -13,7 +12,6 @@ export class TaskExecutionService {
     private readonly sourceRepository: SourceRepository,
     private readonly taskActivityService: TaskActivityService,
     private readonly contextFactory: TaskExecutionContextFactory,
-    private readonly manifestService: ManifestService,
   ) {}
 
   async processTask(taskId: string) {
@@ -54,10 +52,8 @@ export class TaskExecutionService {
       try {
         await adapter.run(executionContext);
       } catch (error) {
-        if (error instanceof AdapterRateLimitError) {
-          await executionContext.markRateLimit('throttled', error.message);
-        }
-        await this.failWorkItem(taskId, workItem.id, getErrorMessage(error));
+        const failureMessage = error instanceof AdapterRateLimitError ? error.message : getErrorMessage(error);
+        await this.failWorkItem(taskId, workItem.id, failureMessage);
       } finally {
         await this.taskRepository.recomputeTaskStats(taskId);
         this.taskActivityService.publishTaskUpdated(taskId);
@@ -65,10 +61,6 @@ export class TaskExecutionService {
     }
 
     await this.taskRepository.recomputeTaskStats(taskId);
-    const refreshedTask = await this.requireTask(taskId);
-    if (refreshedTask.artifacts.length) {
-      await this.manifestService.persistManifest(refreshedTask);
-    }
     this.taskActivityService.publishTaskUpdated(taskId);
   }
 

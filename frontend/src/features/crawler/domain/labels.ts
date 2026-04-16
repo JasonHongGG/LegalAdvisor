@@ -6,7 +6,6 @@ const STATUS_LABELS: Record<string, string> = {
   dispatching: '派送中',
   running: '執行中',
   paused: '已暫停',
-  throttled: '限流中',
   completed: '已完成',
   partial_success: '部分完成',
   failed: '失敗',
@@ -84,15 +83,13 @@ export function formatHealthLabel(status: SourceOverviewDto['healthStatus']) {
 export function artifactLabel(artifact: ArtifactDto) {
   switch (artifact.artifactKind) {
     case 'law_source_snapshot':
-      return '法規來源快照';
+      return '法規來源證據';
     case 'law_document_snapshot':
-      return '法規 Markdown';
+      return '法規閱讀稿';
     case 'law_article_snapshot':
-      return '條文 JSON';
+      return '條文主資料';
     case 'law_revision_snapshot':
-      return '沿革 JSON';
-    case 'law_cross_reference_snapshot':
-      return '交叉引用 JSON';
+      return '法條版本證據';
     case 'judicial_site_snapshot':
       return '司法院網站 JSON';
     case 'judicial_site_markdown':
@@ -101,9 +98,52 @@ export function artifactLabel(artifact: ArtifactDto) {
       return '裁判資料 JSON';
     case 'judgment_document_snapshot':
       return '裁判資料 Markdown';
-    case 'batch_manifest':
-      return '批次清單';
     default:
       return artifact.artifactKind;
+  }
+}
+
+export function artifactRoleLabel(artifact: ArtifactDto) {
+  switch (artifact.artifactRole) {
+    case 'machine-source':
+      return '機器主來源';
+    case 'provenance':
+      return '來源證據';
+    case 'version-evidence':
+      return '版本證據';
+    case 'review-output':
+      return '人工閱讀';
+    case 'debug':
+      return '偵錯資料';
+    default:
+      return '爬取輸出';
+  }
+}
+
+export function artifactRoleSectionLabel(role: ArtifactDto['artifactRole']) {
+  switch (role) {
+    case 'machine-source':
+      return '機器主來源';
+    case 'provenance':
+      return '來源與證據';
+    case 'version-evidence':
+      return '版本資訊';
+    case 'review-output':
+      return '人工閱讀輸出';
+    case 'debug':
+      return '偵錯輸出';
+    default:
+      return '其他輸出';
+  }
+}
+
+export function artifactContentStatusLabel(artifact: ArtifactDto) {
+  switch (artifact.contentStatus) {
+    case 'new':
+      return '新寫入';
+    case 'reused':
+      return '重用既有版本';
+    default:
+      return '任務輸出';
   }
 }

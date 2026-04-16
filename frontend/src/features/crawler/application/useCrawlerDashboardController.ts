@@ -15,6 +15,7 @@ export function useCrawlerDashboardController() {
   const navigate = useNavigate();
   const { taskId: routeTaskId } = useParams<{ taskId?: string }>();
   const artifactPreview = useArtifactPreview();
+  const { resetPreview } = artifactPreview;
 
   const [sources, setSources] = useState<SourceOverviewDto[]>([]);
   const [tasks, setTasks] = useState<TaskSummaryDto[]>([]);
@@ -137,11 +138,11 @@ export function useCrawlerDashboardController() {
   }, [refreshAll]);
 
   useEffect(() => {
-    artifactPreview.resetPreview();
+    resetPreview();
     if (routeTaskId) {
       void loadTaskDetail(routeTaskId);
     }
-  }, [artifactPreview.resetPreview, loadTaskDetail, routeTaskId]);
+  }, [loadTaskDetail, resetPreview, routeTaskId]);
 
   useTaskStream({
     activeTaskId: routeTaskId ?? null,

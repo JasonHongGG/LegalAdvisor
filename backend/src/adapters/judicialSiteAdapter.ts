@@ -83,9 +83,7 @@ export class JudicialSiteAdapter implements SourceAdapter {
       page += 1;
       await context.emit('info', 'work-item-status', `抓取列表頁 ${page}`, { url: currentUrl });
       const pageResponse = await httpClient.get(currentUrl, { insecureTls: true });
-      await context.incrementSourceRequestCount();
       const { entries, nextPageUrl } = extractPageEntries(currentUrl, pageResponse.text());
-      await context.checkpoint('judicial-list-page', { page, currentUrl, nextPageUrl, collectedEntries: items.length });
       await context.updateWorkItem({
         status: 'fetching_detail',
         currentStage: 'fetching_detail',
@@ -99,7 +97,6 @@ export class JudicialSiteAdapter implements SourceAdapter {
           continue;
         }
         const detailResponse = await httpClient.get(entry.link, { insecureTls: true });
-        await context.incrementSourceRequestCount();
         items.push({
           ...entry,
           content: extractDetailContent(entry.link, detailResponse.text()),
@@ -156,7 +153,6 @@ export class JudicialSiteAdapter implements SourceAdapter {
       pages: page,
       items: items.length,
     });
-    await context.markRateLimit('normal');
     await context.updateWorkItem({
       status: 'done',
       currentStage: 'done',

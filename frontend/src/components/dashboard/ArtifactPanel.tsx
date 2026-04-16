@@ -4,7 +4,7 @@ import { clsx } from 'clsx';
 import styles from './ArtifactPanel.module.css';
 import { IconButton } from '../ui/IconButton';
 import { Tooltip } from '../ui/Tooltip';
-import { artifactLabel } from '../../features/crawler/domain/labels';
+import { artifactContentStatusLabel, artifactLabel, artifactRoleLabel, artifactRoleSectionLabel } from '../../features/crawler/domain/labels';
 import { api } from '../../lib/api';
 
 type ArtifactPanelProps = {
@@ -15,16 +15,31 @@ type ArtifactPanelProps = {
 };
 
 function artifactAccentClass(artifactKind: ArtifactDto['artifactKind']) {
-  if (artifactKind.includes('markdown')) {
-    return styles.markdown;
+  if (artifactKind === 'law_article_snapshot' || artifactKind === 'judicial_site_snapshot' || artifactKind === 'judgment_source_snapshot') {
+    return styles.machineSource;
   }
-  if (artifactKind.includes('manifest')) {
-    return styles.manifest;
+  if (artifactKind === 'law_source_snapshot') {
+    return styles.provenance;
+  }
+  if (artifactKind === 'law_revision_snapshot') {
+    return styles.versionEvidence;
+  }
+  if (artifactKind.includes('markdown') || artifactKind === 'judgment_document_snapshot') {
+    return styles.markdown;
   }
   return styles.json;
 }
 
+const roleOrder: ArtifactDto['artifactRole'][] = ['machine-source', 'provenance', 'version-evidence', 'review-output', 'crawler-output', 'debug'];
+
 export function ArtifactPanel({ taskId, artifacts, activeArtifactId, onOpenPreview }: ArtifactPanelProps) {
+  const groupedArtifacts = roleOrder
+    .map((role) => ({
+      role,
+      artifacts: artifacts.filter((artifact) => artifact.artifactRole === role),
+    }))
+    .filter((group) => group.artifacts.length > 0);
+
   const handleDownloadManifest = () => {
     void api.downloadManifest(taskId).catch((error) => {
       window.alert(error instanceof Error ? `下載 manifest 失敗：${error.message}` : '下載 manifest 失敗');
@@ -47,7 +62,7 @@ export function ArtifactPanel({ taskId, artifacts, activeArtifactId, onOpenPrevi
               <Download size={16} />
             </IconButton>
           </Tooltip>
-          <Tooltip content="下載本次任務全部輸出檔案（ZIP）">
+          <Tooltip content="下載本次任務完整輸出（含 manifest）">
             <IconButton label="下載全部檔案" size="sm" disabled={artifacts.length === 0} onClick={handleDownloadArchive}>
               <Archive size={16} />
             </IconButton>
@@ -57,28 +72,43 @@ export function ArtifactPanel({ taskId, artifacts, activeArtifactId, onOpenPrevi
 
       <div className={styles.scroller}>
         {artifacts.length === 0 && <div className={styles.empty}>尚未輸出檔案。</div>}
-        {artifacts.map((artifact) => {
-          const isActive = artifact.id === activeArtifactId;
-          return (
-            <button
-              key={artifact.id}
-              type="button"
-              className={clsx(styles.item, artifactAccentClass(artifact.artifactKind), isActive && styles.itemActive)}
-              onClick={() => onOpenPreview(artifact)}
-            >
-              <div className={styles.itemMarker}>
-                <FileText size={16} />
-              </div>
-              <div className={styles.itemBody}>
-                <strong>{artifactLabel(artifact)}</strong>
-                <span>{artifact.fileName}</span>
-              </div>
-              <span className={styles.itemAction}>
-                <Eye size={16} />
-              </span>
-            </button>
-          );
-        })}
+        {groupedArtifacts.map((group) => (
+          <section key={group.role} className={styles.group}>
+            <div className={styles.groupHeader}>
+              <strong>{artifactRoleSectionLabel(group.role)}</strong>
+              <span>{group.artifacts.length} 份</span>
+            </div>
+
+            <div className={styles.groupList}>
+              {group.artifacts.map((artifact) => {
+                const isActive = artifact.id === activeArtifactId;
+                return (
+                  <button
+                    key={artifact.id}
+                    type="button"
+                    className={clsx(styles.item, artifactAccentClass(artifact.artifactKind), isActive && styles.itemActive)}
+                    onClick={() => onOpenPreview(artifact)}
+                  >
+                    <div className={styles.itemMarker}>
+                      <FileText size={16} />
+                    </div>
+                    <div className={styles.itemBody}>
+                      <strong>{artifactLabel(artifact)}</strong>
+                      <span>{artifact.fileName}</span>
+                      <div className={styles.itemMetaRow}>
+                        <span className={styles.itemBadge}>{artifactRoleLabel(artifact)}</span>
+                        <span className={styles.itemBadge}>{artifactContentStatusLabel(artifact)}</span>
+                      </div>
+                    </div>
+                    <span className={styles.itemAction}>
+                      <Eye size={16} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
     </aside>
   );

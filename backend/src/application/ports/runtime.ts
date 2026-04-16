@@ -11,10 +11,11 @@ import type { SourceCatalogEntry } from '../../domain/sourceCatalog.js';
 export interface ArtifactWriteResult {
   artifactKind: ArtifactKind;
   fileName: string;
-  storagePath: string;
   contentType: string;
   sizeBytes: number;
   hashSha256: string;
+  encoding: 'utf-8' | null;
+  buffer: Buffer;
   metadata: Record<string, unknown>;
 }
 
@@ -37,7 +38,6 @@ export interface ArtifactStoragePort {
     content: string;
     metadata?: Record<string, unknown>;
   }): Promise<ArtifactWriteResult>;
-  download(storagePath: string): Promise<Buffer>;
 }
 
 export interface TaskQueuePort {
@@ -54,7 +54,6 @@ export interface TaskStreamPublisher {
 export interface SourceHealthProbe {
   probe(source: SourceCatalogEntry): Promise<{
     healthStatus: SourceOverviewDto['healthStatus'];
-    rateLimitStatus: SourceOverviewDto['rateLimitStatus'];
     lastErrorMessage: string | null;
   }>;
 }

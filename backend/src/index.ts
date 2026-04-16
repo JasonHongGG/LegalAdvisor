@@ -2,7 +2,6 @@ import process from 'node:process';
 import { createApp } from './app.js';
 import type {
   ArtifactRepository,
-  CheckpointRepository,
   EventRepository,
   SourceRepository,
   TaskRepository,
@@ -10,7 +9,7 @@ import type {
 import type { TaskQueuePort } from './application/ports/runtime.js';
 import { TaskExecutionContextFactory } from './application/factories/taskExecutionContextFactory.js';
 import { CrawlerApplicationFacade } from './application/services/crawlerApplicationFacade.js';
-import { ManifestService } from './application/services/manifestService.js';
+import { LawArtifactRegistryService } from './application/services/lawArtifactRegistryService.js';
 import { SourceCatalogService } from './application/services/sourceCatalogService.js';
 import { TaskActivityService } from './application/services/taskActivityService.js';
 import { TaskCommandService } from './application/services/taskCommandService.js';
@@ -28,14 +27,13 @@ import { StorageService } from './services/storageService.js';
 
 const config = loadConfig();
 const taskStreamBroadcaster = new SseTaskStreamBroadcaster();
-const storageService = new StorageService(config);
+const storageService = new StorageService();
 
 function createRuntime(): {
   sourceRepository: SourceRepository;
   taskRepository: TaskRepository;
   artifactRepository: ArtifactRepository;
   eventRepository: EventRepository;
-  checkpointRepository: CheckpointRepository;
   taskQueue: TaskQueuePort;
   closeDatabase: () => Promise<void>;
 } {
@@ -47,7 +45,6 @@ function createRuntime(): {
       taskRepository: repository,
       artifactRepository: repository,
       eventRepository: repository,
-      checkpointRepository: repository,
       taskQueue: new MemoryQueueService(),
       closeDatabase: async () => {},
     };
@@ -60,7 +57,6 @@ function createRuntime(): {
     taskRepository: repository,
     artifactRepository: repository,
     eventRepository: repository,
-    checkpointRepository: repository,
     taskQueue: new QueueService(config),
     closeDatabase: async () => {
       await pool.end();
@@ -72,23 +68,21 @@ const runtime = createRuntime();
 const sourceHealthProbe = new HttpSourceHealthProbe();
 const taskActivityService = new TaskActivityService(runtime.eventRepository, taskStreamBroadcaster);
 const sourceCatalogService = new SourceCatalogService(runtime.sourceRepository, sourceHealthProbe, taskActivityService);
-const manifestService = new ManifestService(runtime.taskRepository, runtime.artifactRepository, storageService);
-const taskQueryService = new TaskQueryService(runtime.taskRepository, runtime.artifactRepository, storageService);
+const lawArtifactRegistry = new LawArtifactRegistryService(runtime.artifactRepository, storageService);
+const taskQueryService = new TaskQueryService(runtime.taskRepository, runtime.artifactRepository);
 const taskCommandService = new TaskCommandService(runtime.taskRepository, runtime.taskQueue, taskActivityService);
 const taskExecutionContextFactory = new TaskExecutionContextFactory(
   runtime.taskRepository,
   runtime.artifactRepository,
-  runtime.checkpointRepository,
-  runtime.sourceRepository,
   storageService,
   taskActivityService,
+  lawArtifactRegistry,
 );
 const taskExecutionService = new TaskExecutionService(
   runtime.taskRepository,
   runtime.sourceRepository,
   taskActivityService,
   taskExecutionContextFactory,
-  manifestService,
 );
 const application = new CrawlerApplicationFacade(
   sourceCatalogService,

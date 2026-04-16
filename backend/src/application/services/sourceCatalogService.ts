@@ -27,7 +27,6 @@ export class SourceCatalogService {
         const probeResult = await this.sourceHealthProbe.probe(source);
         await this.sourceRepository.updateSourceHealth(source.id, {
           healthStatus: probeResult.healthStatus,
-          rateLimitStatus: probeResult.rateLimitStatus,
           lastCheckedAt: isoNow(),
           lastErrorMessage: probeResult.lastErrorMessage,
         });

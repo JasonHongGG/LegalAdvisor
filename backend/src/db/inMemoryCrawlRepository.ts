@@ -12,36 +12,70 @@ import type {
   TaskStatus,
 } from '@legaladvisor/shared';
 import type {
+  ArtifactContentRecord,
   ArtifactRepository,
-  CheckpointRepository,
+  CanonicalArtifactInput,
+  CanonicalLawDocumentInput,
+  CanonicalLawVersionInput,
+  CanonicalLawVersionMatch,
+  EnsureArtifactContentInput,
   EventRepository,
   InsertArtifactInput,
   InsertEventInput,
-  RunSummaryInput,
+  LinkedTaskArtifactInput,
   SourceHealthPatch,
   SourceRepository,
   TaskRepository,
-  UpsertCheckpointInput,
 } from '../application/ports/repositories.js';
 import type { SourceCatalogEntry } from '../domain/sourceCatalog.js';
 import { createId } from '../utils.js';
 
-type CheckpointRecord = {
+type ArtifactDefinitionRecord = {
   id: string;
+  artifactKind: CrawlArtifact['artifactKind'];
+  artifactRole: CrawlArtifact['artifactRole'];
+  canonicalDocumentId: string | null;
+  canonicalVersionId: string | null;
+  fileName: string;
+  contentId: string;
+  contentType: string;
+  sizeBytes: number;
+  hashSha256: string;
+  schemaVersion: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+type ArtifactContentState = ArtifactContentRecord & {
+  buffer: Buffer;
+  createdAt: string;
+};
+
+type TaskArtifactLinkRecord = {
+  id: string;
+  taskId: string;
   workItemId: string | null;
-  checkpointKey: string;
-  cursor: Record<string, unknown>;
-  updatedAt: string;
+  artifactId: string;
+  contentStatus: CrawlArtifact['contentStatus'];
+  createdAt: string;
 };
 
 type InternalTaskState = {
   summary: CrawlTaskSummary;
   workItems: CrawlWorkItem[];
-  artifacts: CrawlArtifact[];
   events: CrawlEvent[];
-  checkpoints: Map<string, CheckpointRecord>;
-  manifestArtifactId: string | null;
-  runSummary: RunSummaryInput | null;
+};
+
+type CanonicalLawDocumentRecord = CanonicalLawDocumentInput & {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CanonicalLawVersionRecord = CanonicalLawVersionInput & {
+  id: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
 };
 
 const finalTaskStatuses = new Set<TaskStatus>(['completed', 'partial_success', 'failed', 'cancelled']);
@@ -70,11 +104,18 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-export class InMemoryCrawlRepository implements SourceRepository, TaskRepository, ArtifactRepository, EventRepository, CheckpointRepository {
+export class InMemoryCrawlRepository implements SourceRepository, TaskRepository, ArtifactRepository, EventRepository {
   private readonly sources = new Map<SourceId, CrawlSourceRecord>();
   private readonly tasks = new Map<string, InternalTaskState>();
   private readonly workItemToTask = new Map<string, string>();
-  private readonly artifacts = new Map<string, CrawlArtifact>();
+  private readonly artifactContents = new Map<string, ArtifactContentState>();
+  private readonly artifactContentIdsByHash = new Map<string, string>();
+  private readonly artifactDefinitions = new Map<string, ArtifactDefinitionRecord>();
+  private readonly taskArtifactLinks = new Map<string, TaskArtifactLinkRecord>();
+  private readonly canonicalLawDocuments = new Map<string, CanonicalLawDocumentRecord>();
+  private readonly canonicalLawDocumentKeys = new Map<string, string>();
+  private readonly canonicalLawVersions = new Map<string, CanonicalLawVersionRecord>();
+  private readonly canonicalLawVersionKeys = new Map<string, string>();
 
   async ensureSourceCatalog(catalog: SourceCatalogEntry[]) {
     for (const source of catalog) {
@@ -89,8 +130,6 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
         description: source.description,
         notes: source.notes,
         healthStatus: existing?.healthStatus ?? 'unknown',
-        rateLimitStatus: existing?.rateLimitStatus ?? 'unknown',
-        todayRequestCount: existing?.todayRequestCount ?? 0,
         recommendedConcurrency: existing?.recommendedConcurrency ?? source.recommendedConcurrency,
         lastCheckedAt: existing?.lastCheckedAt ?? null,
         lastErrorMessage: existing?.lastErrorMessage ?? null,
@@ -106,15 +145,9 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
 
   async updateSourceHealth(sourceId: SourceId, patch: SourceHealthPatch) {
     const source = this.requireSource(sourceId);
-    source.healthStatus = patch.healthStatus as CrawlSourceRecord['healthStatus'];
-    source.rateLimitStatus = patch.rateLimitStatus as CrawlSourceRecord['rateLimitStatus'];
+    source.healthStatus = patch.healthStatus;
     source.lastCheckedAt = patch.lastCheckedAt;
     source.lastErrorMessage = patch.lastErrorMessage ?? null;
-  }
-
-  async incrementSourceRequestCount(sourceId: SourceId, amount = 1) {
-    const source = this.requireSource(sourceId);
-    source.todayRequestCount += amount;
   }
 
   async createTask(input: CreateTaskRequest) {
@@ -179,11 +212,7 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     this.tasks.set(taskId, {
       summary,
       workItems,
-      artifacts: [],
       events: [],
-      checkpoints: new Map(),
-      manifestArtifactId: null,
-      runSummary: null,
     });
 
     for (const workItem of workItems) {
@@ -217,10 +246,7 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     }
 
     const summary = clone(state.summary);
-    const artifacts = state.artifacts
-      .slice()
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-      .map((artifact) => clone(artifact));
+    const artifacts = this.listTaskArtifacts(taskId);
     const events = state.events.slice(0, 200).map((event) => clone(event));
     const workItems = state.workItems
       .slice()
@@ -230,16 +256,12 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
         artifacts: artifacts.filter((artifact) => artifact.workItemId === workItem.id),
         recentEvents: state.events.filter((event) => event.workItemId === workItem.id).slice(0, 50).map((event) => clone(event)),
       }));
-    const checkpoints = [...state.checkpoints.values()]
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .map((checkpoint) => clone(checkpoint));
 
     return {
       ...summary,
       workItems,
       recentEvents: events,
       artifacts,
-      checkpoints,
       manifest: this.buildManifest(summary, workItems, artifacts),
     };
   }
@@ -264,18 +286,6 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
       state.summary.finishedAt = null;
     }
     state.summary.updatedAt = timestamp;
-  }
-
-  async updateTaskManifest(taskId: string, manifestArtifactId: string) {
-    const state = this.requireTaskState(taskId);
-    state.manifestArtifactId = manifestArtifactId;
-    state.summary.updatedAt = nowIso();
-  }
-
-  async upsertRunSummary(taskId: string, _manifestArtifactId: string | null, summary: RunSummaryInput) {
-    const state = this.requireTaskState(taskId);
-    state.runSummary = clone(summary);
-    state.summary.updatedAt = nowIso();
   }
 
   async updateWorkItem(workItemId: string, patch: Record<string, unknown>) {
@@ -320,57 +330,6 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     state.summary.updatedAt = timestamp;
   }
 
-  async appendEvent(input: InsertEventInput) {
-    const state = this.requireTaskState(input.taskId);
-    const occurredAt = input.occurredAt ?? nowIso();
-    state.events.unshift({
-      id: input.id,
-      taskId: input.taskId,
-      workItemId: input.workItemId,
-      eventType: input.eventType,
-      level: input.level,
-      message: input.message,
-      details: clone(input.details),
-      occurredAt,
-    });
-    state.summary.lastEventAt = occurredAt;
-    state.summary.updatedAt = occurredAt;
-  }
-
-  async insertArtifact(input: InsertArtifactInput) {
-    const state = this.requireTaskState(input.taskId);
-    const createdAt = input.createdAt ?? nowIso();
-    const artifact: CrawlArtifact = {
-      ...input,
-      metadata: clone(input.metadata),
-      createdAt,
-    };
-    state.artifacts.unshift(artifact);
-    this.artifacts.set(artifact.id, artifact);
-    state.summary.updatedAt = createdAt;
-    return clone(artifact);
-  }
-
-  async getArtifact(artifactId: string) {
-    const artifact = this.artifacts.get(artifactId);
-    return artifact ? clone(artifact) : null;
-  }
-
-  async upsertCheckpoint(input: UpsertCheckpointInput) {
-    const state = this.requireTaskState(input.taskId);
-    const key = this.checkpointKey(input.taskId, input.workItemId, input.checkpointKey);
-    const existing = state.checkpoints.get(key);
-    const checkpoint: CheckpointRecord = {
-      id: existing?.id ?? input.id ?? createId(),
-      workItemId: input.workItemId,
-      checkpointKey: input.checkpointKey,
-      cursor: clone(input.cursor),
-      updatedAt: input.updatedAt ?? nowIso(),
-    };
-    state.checkpoints.set(key, checkpoint);
-    state.summary.updatedAt = checkpoint.updatedAt;
-  }
-
   async recomputeTaskStats(taskId: string) {
     const state = this.requireTaskState(taskId);
     const total = state.workItems.length;
@@ -384,7 +343,7 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     const overallProgress = total ? Number((state.workItems.reduce((sum, item) => sum + item.progress, 0) / total).toFixed(2)) : 0;
 
     let nextStatus = state.summary.status;
-    if (!['paused', 'cancelled', 'throttled'].includes(nextStatus)) {
+    if (!['paused', 'cancelled'].includes(nextStatus)) {
       if (total > 0 && completed + failed + skipped === total) {
         if (failed === 0) {
           nextStatus = 'completed';
@@ -415,6 +374,251 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     } else {
       state.summary.finishedAt = null;
     }
+  }
+
+  async appendEvent(input: InsertEventInput) {
+    const state = this.requireTaskState(input.taskId);
+    const occurredAt = input.occurredAt ?? nowIso();
+    state.events.unshift({
+      id: input.id,
+      taskId: input.taskId,
+      workItemId: input.workItemId,
+      eventType: input.eventType,
+      level: input.level,
+      message: input.message,
+      details: clone(input.details),
+      occurredAt,
+    });
+    state.summary.lastEventAt = occurredAt;
+    state.summary.updatedAt = occurredAt;
+  }
+
+  async ensureArtifactContent(input: EnsureArtifactContentInput) {
+    const existingId = this.artifactContentIdsByHash.get(input.hashSha256);
+    if (existingId) {
+      const existing = this.artifactContents.get(existingId);
+      if (!existing) {
+        throw new Error(`Artifact content ${existingId} not found.`);
+      }
+      return {
+        id: existing.id,
+        hashSha256: existing.hashSha256,
+        contentType: existing.contentType,
+        sizeBytes: existing.sizeBytes,
+        encoding: existing.encoding,
+      } satisfies ArtifactContentRecord;
+    }
+
+    const record: ArtifactContentState = {
+      id: createId(),
+      hashSha256: input.hashSha256,
+      contentType: input.contentType,
+      sizeBytes: input.sizeBytes,
+      encoding: input.encoding,
+      buffer: Buffer.from(input.buffer),
+      createdAt: input.createdAt ?? nowIso(),
+    };
+    this.artifactContents.set(record.id, record);
+    this.artifactContentIdsByHash.set(record.hashSha256, record.id);
+    return {
+      id: record.id,
+      hashSha256: record.hashSha256,
+      contentType: record.contentType,
+      sizeBytes: record.sizeBytes,
+      encoding: record.encoding,
+    } satisfies ArtifactContentRecord;
+  }
+
+  async insertArtifact(input: InsertArtifactInput) {
+    const artifactRecord: ArtifactDefinitionRecord = {
+      id: createId(),
+      artifactKind: input.artifactKind,
+      artifactRole: input.artifactRole,
+      canonicalDocumentId: input.canonicalDocumentId,
+      canonicalVersionId: input.canonicalVersionId,
+      fileName: input.fileName,
+      contentId: input.contentId,
+      contentType: input.contentType,
+      sizeBytes: input.sizeBytes,
+      hashSha256: input.hashSha256,
+      schemaVersion: input.schemaVersion,
+      metadata: clone({
+        ...input.metadata,
+        artifactRole: input.artifactRole,
+        contentStatus: input.contentStatus,
+        canonicalDocumentId: input.canonicalDocumentId,
+        canonicalVersionId: input.canonicalVersionId,
+      }),
+      createdAt: input.createdAt ?? nowIso(),
+    };
+    this.artifactDefinitions.set(artifactRecord.id, artifactRecord);
+
+    const link: TaskArtifactLinkRecord = {
+      id: input.id,
+      taskId: input.taskId,
+      workItemId: input.workItemId,
+      artifactId: artifactRecord.id,
+      contentStatus: input.contentStatus,
+      createdAt: input.createdAt ?? nowIso(),
+    };
+    this.taskArtifactLinks.set(link.id, link);
+    this.requireTaskState(input.taskId).summary.updatedAt = link.createdAt;
+    return this.mapLinkedArtifact(link, artifactRecord);
+  }
+
+  async getArtifact(artifactId: string) {
+    const link = this.taskArtifactLinks.get(artifactId);
+    if (link) {
+      const artifact = this.artifactDefinitions.get(link.artifactId);
+      if (!artifact) {
+        return null;
+      }
+      return this.mapLinkedArtifact(link, artifact);
+    }
+
+    const canonicalArtifact = this.artifactDefinitions.get(artifactId);
+    if (!canonicalArtifact) {
+      return null;
+    }
+
+    return this.mapCanonicalArtifact(canonicalArtifact);
+  }
+
+  async getArtifactContent(artifactId: string) {
+    const link = this.taskArtifactLinks.get(artifactId);
+    const artifactDefinition = link ? this.artifactDefinitions.get(link.artifactId) : this.artifactDefinitions.get(artifactId);
+    if (!artifactDefinition) {
+      return null;
+    }
+    const content = this.artifactContents.get(artifactDefinition.contentId);
+    return content ? Buffer.from(content.buffer) : null;
+  }
+
+  async ensureCanonicalLawDocument(input: CanonicalLawDocumentInput) {
+    const key = `${input.sourceId}:${input.normalizedLawName}`;
+    const existingId = this.canonicalLawDocumentKeys.get(key);
+    if (existingId) {
+      const existing = this.canonicalLawDocuments.get(existingId);
+      if (!existing) {
+        throw new Error(`Canonical law document ${existingId} not found.`);
+      }
+      existing.lawName = input.lawName;
+      existing.englishName = input.englishName;
+      existing.lawLevel = input.lawLevel;
+      existing.category = input.category;
+      existing.lawUrl = input.lawUrl;
+      existing.updatedAt = nowIso();
+      return existing.id;
+    }
+
+    const record: CanonicalLawDocumentRecord = {
+      ...clone(input),
+      id: createId(),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    this.canonicalLawDocuments.set(record.id, record);
+    this.canonicalLawDocumentKeys.set(key, record.id);
+    return record.id;
+  }
+
+  async findCanonicalLawVersion(sourceId: SourceId, normalizedLawName: string, versionFingerprint: string): Promise<CanonicalLawVersionMatch | null> {
+    const lawDocumentId = this.canonicalLawDocumentKeys.get(`${sourceId}:${normalizedLawName}`);
+    if (!lawDocumentId) {
+      return null;
+    }
+
+    const versionId = this.canonicalLawVersionKeys.get(`${lawDocumentId}:${versionFingerprint}`);
+    if (!versionId) {
+      return null;
+    }
+
+    const artifacts = [...this.artifactDefinitions.values()]
+      .filter((artifact) => artifact.canonicalVersionId === versionId)
+      .map((artifact) => this.mapCanonicalArtifact(artifact));
+
+    return {
+      lawDocumentId,
+      lawVersionId: versionId,
+      versionFingerprint,
+      artifacts,
+    };
+  }
+
+  async createCanonicalLawVersion(input: CanonicalLawVersionInput) {
+    const key = `${input.lawDocumentId}:${input.versionFingerprint}`;
+    const existingId = this.canonicalLawVersionKeys.get(key);
+    if (existingId) {
+      const existing = this.canonicalLawVersions.get(existingId);
+      if (!existing) {
+        throw new Error(`Canonical law version ${existingId} not found.`);
+      }
+      existing.lastSeenAt = nowIso();
+      return existing.id;
+    }
+
+    const record: CanonicalLawVersionRecord = {
+      ...clone(input),
+      id: createId(),
+      firstSeenAt: nowIso(),
+      lastSeenAt: nowIso(),
+    };
+    this.canonicalLawVersions.set(record.id, record);
+    this.canonicalLawVersionKeys.set(key, record.id);
+    return record.id;
+  }
+
+  async insertCanonicalArtifact(input: CanonicalArtifactInput) {
+    const artifact: ArtifactDefinitionRecord = {
+      id: input.id,
+      artifactKind: input.artifactKind,
+      artifactRole: input.artifactRole,
+      canonicalDocumentId: input.lawDocumentId,
+      canonicalVersionId: input.lawVersionId,
+      fileName: input.fileName,
+      contentId: input.contentId,
+      contentType: input.contentType,
+      sizeBytes: input.sizeBytes,
+      hashSha256: input.hashSha256,
+      schemaVersion: input.schemaVersion,
+      metadata: clone({
+        ...input.metadata,
+        artifactRole: input.artifactRole,
+        contentStatus: 'new',
+        canonicalDocumentId: input.lawDocumentId,
+        canonicalVersionId: input.lawVersionId,
+      }),
+      createdAt: input.createdAt ?? nowIso(),
+    };
+    this.artifactDefinitions.set(artifact.id, artifact);
+    return this.mapCanonicalArtifact(artifact);
+  }
+
+  async linkTaskArtifact(input: LinkedTaskArtifactInput) {
+    const canonicalArtifact = this.artifactDefinitions.get(input.canonicalArtifactId);
+    if (!canonicalArtifact) {
+      throw new Error(`Canonical artifact ${input.canonicalArtifactId} not found.`);
+    }
+
+    const existing = [...this.taskArtifactLinks.values()].find(
+      (link) => link.taskId === input.taskId && link.workItemId === input.workItemId && link.artifactId === input.canonicalArtifactId,
+    );
+    if (existing) {
+      existing.contentStatus = input.contentStatus;
+      return this.mapLinkedArtifact(existing, canonicalArtifact);
+    }
+
+    const link: TaskArtifactLinkRecord = {
+      id: input.id ?? createId(),
+      taskId: input.taskId,
+      workItemId: input.workItemId,
+      artifactId: input.canonicalArtifactId,
+      contentStatus: input.contentStatus,
+      createdAt: input.createdAt ?? nowIso(),
+    };
+    this.taskArtifactLinks.set(link.id, link);
+    this.requireTaskState(input.taskId).summary.updatedAt = link.createdAt;
+    return this.mapLinkedArtifact(link, canonicalArtifact);
   }
 
   async getSourceById(sourceId: SourceId) {
@@ -451,8 +655,69 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     return { state, workItem };
   }
 
-  private checkpointKey(taskId: string, workItemId: string | null, checkpointKey: string) {
-    return `${taskId}:${workItemId ?? 'task'}:${checkpointKey}`;
+  private listTaskArtifacts(taskId: string) {
+    return [...this.taskArtifactLinks.values()]
+      .filter((link) => link.taskId === taskId)
+      .map((link) => {
+        const artifact = this.artifactDefinitions.get(link.artifactId);
+        if (!artifact) {
+          throw new Error(`Artifact definition ${link.artifactId} not found.`);
+        }
+        return this.mapLinkedArtifact(link, artifact);
+      })
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  private mapLinkedArtifact(link: TaskArtifactLinkRecord, artifact: ArtifactDefinitionRecord): CrawlArtifact {
+    return {
+      id: link.id,
+      taskId: link.taskId,
+      workItemId: link.workItemId,
+      artifactKind: artifact.artifactKind,
+      artifactRole: artifact.artifactRole,
+      contentStatus: link.contentStatus,
+      canonicalDocumentId: artifact.canonicalDocumentId,
+      canonicalVersionId: artifact.canonicalVersionId,
+      fileName: artifact.fileName,
+      contentType: artifact.contentType,
+      sizeBytes: artifact.sizeBytes,
+      hashSha256: artifact.hashSha256,
+      schemaVersion: artifact.schemaVersion,
+      metadata: clone({
+        ...artifact.metadata,
+        artifactRole: artifact.artifactRole,
+        contentStatus: link.contentStatus,
+        canonicalDocumentId: artifact.canonicalDocumentId,
+        canonicalVersionId: artifact.canonicalVersionId,
+      }),
+      createdAt: link.createdAt,
+    };
+  }
+
+  private mapCanonicalArtifact(artifact: ArtifactDefinitionRecord): CrawlArtifact {
+    return {
+      id: artifact.id,
+      taskId: `canonical:${artifact.canonicalVersionId ?? 'unknown'}`,
+      workItemId: null,
+      artifactKind: artifact.artifactKind,
+      artifactRole: artifact.artifactRole,
+      contentStatus: 'new',
+      canonicalDocumentId: artifact.canonicalDocumentId,
+      canonicalVersionId: artifact.canonicalVersionId,
+      fileName: artifact.fileName,
+      contentType: artifact.contentType,
+      sizeBytes: artifact.sizeBytes,
+      hashSha256: artifact.hashSha256,
+      schemaVersion: artifact.schemaVersion,
+      metadata: clone({
+        ...artifact.metadata,
+        artifactRole: artifact.artifactRole,
+        contentStatus: 'new',
+        canonicalDocumentId: artifact.canonicalDocumentId,
+        canonicalVersionId: artifact.canonicalVersionId,
+      }),
+      createdAt: artifact.createdAt,
+    };
   }
 
   private buildManifest(summary: CrawlTaskSummary, workItems: CrawlWorkItem[], artifacts: CrawlArtifact[]): CrawlManifest | null {
@@ -481,8 +746,11 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
       artifacts: artifacts.map((artifact) => ({
         id: artifact.id,
         kind: artifact.artifactKind,
+        role: artifact.artifactRole,
+        contentStatus: artifact.contentStatus,
+        canonicalDocumentId: artifact.canonicalDocumentId,
+        canonicalVersionId: artifact.canonicalVersionId,
         fileName: artifact.fileName,
-        storagePath: artifact.storagePath,
         hashSha256: artifact.hashSha256,
       })),
       failures: workItems

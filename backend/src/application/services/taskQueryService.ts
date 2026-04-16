@@ -1,6 +1,5 @@
 import AdmZip from 'adm-zip';
 import type { ArtifactRepository, TaskRepository } from '../ports/repositories.js';
-import type { ArtifactStoragePort } from '../ports/runtime.js';
 import { AppError, NotFoundError } from '../../domain/errors.js';
 import { detectArtifactPreviewKind, parseJsonText, safeFileName, toUtf8Text } from '../../utils.js';
 
@@ -10,7 +9,6 @@ export class TaskQueryService {
   constructor(
     private readonly taskRepository: TaskRepository,
     private readonly artifactRepository: ArtifactRepository,
-    private readonly artifactStorage: ArtifactStoragePort,
   ) {}
 
   async listTasks() {
@@ -27,7 +25,10 @@ export class TaskQueryService {
       throw new NotFoundError('Artifact not found', { artifactId });
     }
 
-    const buffer = await this.artifactStorage.download(artifact.storagePath);
+    const buffer = await this.artifactRepository.getArtifactContent(artifactId);
+    if (!buffer) {
+      throw new NotFoundError('Artifact content not found', { artifactId });
+    }
     return { artifact, buffer };
   }
 
@@ -53,12 +54,15 @@ export class TaskQueryService {
     const zip = new AdmZip();
     const manifest = await this.downloadManifest(taskId).catch(() => null);
     if (manifest) {
-      zip.addFile(`manifest/${manifest.fileName}`, manifest.buffer);
+      zip.addFile(manifest.fileName, manifest.buffer);
     }
 
     for (const artifact of task.artifacts) {
-      const buffer = await this.artifactStorage.download(artifact.storagePath);
-      zip.addFile(`artifacts/${artifact.artifactKind}/${artifact.fileName}`, buffer);
+      const buffer = await this.artifactRepository.getArtifactContent(artifact.id);
+      if (!buffer) {
+        throw new NotFoundError('Artifact content not found', { artifactId: artifact.id });
+      }
+      zip.addFile(this.buildArchiveEntryPath(artifact.artifactRole, artifact.artifactKind, artifact.fileName), buffer);
     }
 
     return {
@@ -87,7 +91,10 @@ export class TaskQueryService {
       };
     }
 
-    const buffer = await this.artifactStorage.download(artifact.storagePath);
+    const buffer = await this.artifactRepository.getArtifactContent(artifactId);
+    if (!buffer) {
+      throw new NotFoundError('Artifact content not found', { artifactId });
+    }
     const truncated = buffer.byteLength > MAX_ARTIFACT_PREVIEW_BYTES;
     const previewBuffer = truncated ? buffer.subarray(0, MAX_ARTIFACT_PREVIEW_BYTES) : buffer;
     const previewText = toUtf8Text(previewBuffer);
@@ -118,5 +125,11 @@ export class TaskQueryService {
       throw new NotFoundError('Task not found', { taskId });
     }
     return task;
+  }
+
+  private buildArchiveEntryPath(artifactRole: string, artifactKind: string, fileName: string) {
+    const roleFolder = safeFileName(artifactRole || 'files') || 'files';
+    const kindFolder = safeFileName(artifactKind || 'artifact') || 'artifact';
+    return `${roleFolder}/${kindFolder}/${fileName}`;
   }
 }
