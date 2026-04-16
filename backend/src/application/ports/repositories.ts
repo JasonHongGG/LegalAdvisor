@@ -137,6 +137,7 @@ export interface TaskRepository {
   listTaskSummaries(): Promise<TaskSummaryDto[]>;
   getTaskDetail(taskId: string): Promise<TaskDetailDto | null>;
   getTaskStatus(taskId: string): Promise<TaskStatus | null>;
+  deleteTask(taskId: string): Promise<void>;
   setTaskStatus(taskId: string, status: TaskStatus, summary?: string): Promise<void>;
   updateWorkItem(workItemId: string, patch: WorkItemPatch): Promise<void>;
   resetFailedWorkItems(taskId: string): Promise<void>;

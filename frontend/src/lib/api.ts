@@ -92,6 +92,14 @@ async function requestJson<T>(path: string, init?: RequestInit) {
   return (await response.json()) as T;
 }
 
+async function requestEmpty(path: string, init?: RequestInit) {
+  const response = await fetch(resolveApiUrl(path), init);
+  if (!response.ok) {
+    const payload = await readErrorPayload(response);
+    throw new Error(extractErrorMessage('Request failed', response, payload));
+  }
+}
+
 export const api = {
   listSources() {
     return requestJson<SourceOverviewDto[]>('/sources');
@@ -119,6 +127,9 @@ export const api = {
   },
   cancelTask(taskId: string) {
     return requestJson<TaskControlResponseDto>(`/tasks/${taskId}/cancel`, { method: 'POST' });
+  },
+  deleteTask(taskId: string) {
+    return requestEmpty(`/tasks/${taskId}`, { method: 'DELETE' });
   },
   retryFailed(taskId: string) {
     return requestJson<TaskControlResponseDto>(`/tasks/${taskId}/retry-failed`, { method: 'POST' });

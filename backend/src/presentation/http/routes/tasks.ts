@@ -60,6 +60,15 @@ export function createTaskRouter(application: CrawlerApplicationFacade) {
     }
   });
 
+  router.delete('/:taskId', async (request, response, next) => {
+    try {
+      await application.deleteTask(request.params.taskId);
+      response.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.post('/:taskId/retry-failed', async (request, response, next) => {
     try {
       response.json(await application.retryFailedItems(request.params.taskId));

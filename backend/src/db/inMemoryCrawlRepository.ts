@@ -270,6 +270,25 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     return this.tasks.get(taskId)?.summary.status ?? null;
   }
 
+  async deleteTask(taskId: string) {
+    const state = this.requireTaskState(taskId);
+
+    for (const workItem of state.workItems) {
+      this.workItemToTask.delete(workItem.id);
+    }
+
+    for (const [linkId, link] of this.taskArtifactLinks.entries()) {
+      if (link.taskId !== taskId) {
+        continue;
+      }
+
+      this.taskArtifactLinks.delete(linkId);
+      this.cleanupArtifactDefinition(link.artifactId);
+    }
+
+    this.tasks.delete(taskId);
+  }
+
   async setTaskStatus(taskId: string, status: TaskStatus, summary?: string) {
     const state = this.requireTaskState(taskId);
     const timestamp = nowIso();
@@ -640,6 +659,36 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
       throw new Error(`Task ${taskId} not found`);
     }
     return state;
+  }
+
+  private cleanupArtifactDefinition(artifactId: string) {
+    const artifact = this.artifactDefinitions.get(artifactId);
+    if (!artifact) {
+      return;
+    }
+
+    const isStillLinked = [...this.taskArtifactLinks.values()].some((link) => link.artifactId === artifactId);
+    if (isStillLinked || artifact.canonicalVersionId || artifact.canonicalDocumentId) {
+      return;
+    }
+
+    this.artifactDefinitions.delete(artifactId);
+    this.cleanupArtifactContent(artifact.contentId);
+  }
+
+  private cleanupArtifactContent(contentId: string) {
+    const isStillReferenced = [...this.artifactDefinitions.values()].some((artifact) => artifact.contentId === contentId);
+    if (isStillReferenced) {
+      return;
+    }
+
+    const content = this.artifactContents.get(contentId);
+    if (!content) {
+      return;
+    }
+
+    this.artifactContents.delete(contentId);
+    this.artifactContentIdsByHash.delete(content.hashSha256);
   }
 
   private requireWorkItem(workItemId: string) {

@@ -1,5 +1,5 @@
 import type { TaskDetailDto, TaskSummaryDto } from '@legaladvisor/shared';
-import { AlertTriangle, CirclePause, CirclePlay, RefreshCcw, XCircle } from 'lucide-react';
+import { AlertTriangle, CirclePause, CirclePlay, RefreshCcw, Trash2, XCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import styles from '../../pages/ScrapingDashboard.module.css';
 import { formatDateTime, formatEta, formatStatusLabel } from '../../features/crawler/domain/labels';
@@ -17,6 +17,7 @@ type TaskDetailPanelProps = {
   nowTimestamp: number;
   activeArtifactId: string | null;
   onTaskAction: (taskId: string, action: 'pause' | 'resume' | 'cancel' | 'retry') => void;
+  onDeleteTask: (taskId: string) => void;
   onOpenPreview: (artifact: TaskDetailDto['artifacts'][number]) => void;
 };
 
@@ -28,6 +29,7 @@ export function TaskDetailPanel({
   nowTimestamp,
   activeArtifactId,
   onTaskAction,
+  onDeleteTask,
   onOpenPreview,
 }: TaskDetailPanelProps) {
   if (!activeTask) {
@@ -65,6 +67,20 @@ export function TaskDetailPanel({
           {activeTask.failedWorkItems > 0 && (
             <Button variant="secondary" size="sm" icon={<RefreshCcw size={16} />} onClick={() => onTaskAction(activeTask.id, 'retry')}>
               重試失敗項目
+            </Button>
+          )}
+          {['cancelled', 'completed', 'partial_success', 'failed'].includes(activeTask.status) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Trash2 size={16} />}
+              onClick={() => {
+                if (window.confirm('刪除後無法復原。確定要刪除這筆任務嗎？')) {
+                  onDeleteTask(activeTask.id);
+                }
+              }}
+            >
+              刪除
             </Button>
           )}
           {!['cancelled', 'completed', 'failed'].includes(activeTask.status) && (

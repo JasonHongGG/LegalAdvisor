@@ -65,6 +65,19 @@ export class TaskCommandService {
     return { taskId, status: 'cancelled' as const };
   }
 
+  async deleteTask(taskId: string) {
+    const task = await this.getTaskOrThrow(taskId);
+    if (!['completed', 'partial_success', 'failed', 'cancelled'].includes(task.status)) {
+      throw new RequestValidationError('只能刪除已停止的任務；請先等待完成或先取消任務。', {
+        taskId,
+        status: task.status,
+      });
+    }
+
+    await this.taskRepository.deleteTask(taskId);
+    this.taskActivityService.publishTaskUpdated(taskId);
+  }
+
   async retryFailedItems(taskId: string) {
     const task = await this.getTaskOrThrow(taskId);
     if (!task.workItems.some((item) => item.status === 'failed')) {

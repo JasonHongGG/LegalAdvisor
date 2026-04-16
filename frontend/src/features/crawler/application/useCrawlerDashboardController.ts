@@ -87,6 +87,9 @@ export function useCrawlerDashboardController() {
     setTasks(nextTasks);
 
     if (nextTasks.length === 0) {
+      if (routeTaskId) {
+        navigate('/scraping', { replace: true });
+      }
       return;
     }
 
@@ -232,6 +235,23 @@ export function useCrawlerDashboardController() {
     }
   }, [loadTaskDetail, refreshTasks]);
 
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    setErrorMessage(null);
+    try {
+      await api.deleteTask(taskId);
+      setTaskDetails((current) => {
+        const next = { ...current };
+        delete next[taskId];
+        taskDetailsRef.current = next;
+        return next;
+      });
+      resetPreview();
+      await refreshTasks();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '刪除任務失敗');
+    }
+  }, [refreshTasks, resetPreview]);
+
   const updateFormValue = useCallback((name: string, value: FieldValue) => {
     setFormValues((current) => ({ ...current, [name]: value }));
   }, []);
@@ -261,6 +281,7 @@ export function useCrawlerDashboardController() {
     nowTimestamp,
     selectTask,
     handleTaskAction,
+    handleDeleteTask,
     artifactPreview,
   };
 }

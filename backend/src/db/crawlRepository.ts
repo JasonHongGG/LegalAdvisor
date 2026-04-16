@@ -276,6 +276,63 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     return (result.rows[0]?.status as TaskStatus | undefined) ?? null;
   }
 
+  async deleteTask(taskId: string) {
+    const client = await this.getClient();
+    try {
+      await client.query('begin');
+
+      const linkedArtifacts = await client.query(
+        `
+          select distinct artifact.id, artifact.content_id, artifact.canonical_document_id, artifact.canonical_version_id
+          from ${this.table('crawl_task_artifact_links')} link
+          join ${this.table('artifacts')} artifact on artifact.id = link.artifact_id
+          where link.task_id = $1
+        `,
+        [taskId],
+      );
+
+      await client.query(`delete from ${this.table('crawl_tasks')} where id = $1`, [taskId]);
+
+      const removableArtifactIds = linkedArtifacts.rows
+        .filter((row) => !row.canonical_document_id && !row.canonical_version_id)
+        .map((row) => String(row.id));
+
+      if (removableArtifactIds.length) {
+        await client.query(
+          `
+            delete from ${this.table('artifacts')} artifact
+            where artifact.id = any($1::text[])
+              and not exists (
+                select 1 from ${this.table('crawl_task_artifact_links')} link where link.artifact_id = artifact.id
+              )
+          `,
+          [removableArtifactIds],
+        );
+      }
+
+      const removableContentIds = [...new Set(linkedArtifacts.rows.map((row) => String(row.content_id)).filter(Boolean))];
+      if (removableContentIds.length) {
+        await client.query(
+          `
+            delete from ${this.table('artifact_contents')} content
+            where content.id = any($1::text[])
+              and not exists (
+                select 1 from ${this.table('artifacts')} artifact where artifact.content_id = content.id
+              )
+          `,
+          [removableContentIds],
+        );
+      }
+
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async setTaskStatus(taskId: string, status: TaskStatus, summary?: string) {
     await this.db.query(
       `

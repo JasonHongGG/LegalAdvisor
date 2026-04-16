@@ -54,6 +54,10 @@ export class CrawlerApplicationFacade {
     return this.taskCommandService.cancelTask(taskId);
   }
 
+  deleteTask(taskId: string) {
+    return this.taskCommandService.deleteTask(taskId);
+  }
+
   retryFailedItems(taskId: string) {
     return this.taskCommandService.retryFailedItems(taskId);
   }

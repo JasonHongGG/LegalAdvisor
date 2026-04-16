@@ -62,6 +62,7 @@ export function ScrapingDashboard() {
               nowTimestamp={controller.nowTimestamp}
               activeArtifactId={controller.artifactPreview.activeArtifactId}
               onTaskAction={controller.handleTaskAction}
+              onDeleteTask={controller.handleDeleteTask}
               onOpenPreview={(artifact) => void controller.artifactPreview.openPreview(artifact)}
             />
           </div>
