@@ -32,14 +32,14 @@ create table if not exists legal_advisor.artifacts (
   created_at timestamptz not null default now()
 );
 
-create table if not exists legal_advisor.crawl_task_artifact_links (
+create table if not exists legal_advisor.crawl_run_artifact_links (
   id text primary key,
-  task_id text not null references legal_advisor.crawl_tasks(id) on delete cascade,
+  run_id text not null references legal_advisor.crawl_runs(id) on delete cascade,
   work_item_id text references legal_advisor.crawl_work_items(id) on delete cascade,
   artifact_id text not null references legal_advisor.artifacts(id) on delete cascade,
   content_status text not null,
   created_at timestamptz not null default now(),
-  unique (task_id, work_item_id, artifact_id)
+  unique (run_id, work_item_id, artifact_id)
 );
 
 create index if not exists idx_artifact_contents_hash
@@ -48,9 +48,10 @@ create index if not exists idx_artifact_contents_hash
 create index if not exists idx_artifacts_canonical_version
   on legal_advisor.artifacts (canonical_version_id, created_at desc);
 
-create unique index if not exists idx_artifacts_canonical_kind_unique
-  on legal_advisor.artifacts (canonical_version_id, artifact_kind)
-  where canonical_version_id is not null;
+drop index if exists legal_advisor.idx_artifacts_canonical_kind_unique;
 
-create index if not exists idx_crawl_task_artifact_links_task
-  on legal_advisor.crawl_task_artifact_links (task_id, created_at desc);
+create unique index if not exists idx_artifacts_canonical_kind_unique
+  on legal_advisor.artifacts (canonical_version_id, artifact_kind);
+
+create index if not exists idx_crawl_run_artifact_links_run
+  on legal_advisor.crawl_run_artifact_links (run_id, created_at desc);

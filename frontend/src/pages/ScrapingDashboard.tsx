@@ -4,9 +4,9 @@ import styles from './ScrapingDashboard.module.css';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { ArtifactPreview } from '../components/dashboard/ArtifactPreview';
 import { SourcePicker } from '../components/dashboard/SourcePicker';
-import { TaskComposer } from '../components/dashboard/TaskComposer';
-import { TaskDetailPanel } from '../components/dashboard/TaskDetailPanel';
-import { TaskRail } from '../components/dashboard/TaskRail';
+import { RunComposer } from '../components/dashboard/RunComposer';
+import { RunDetailPanel } from '../components/dashboard/RunDetailPanel';
+import { RunRail } from '../components/dashboard/RunRail';
 import { useCrawlerDashboardController } from '../features/crawler/application/useCrawlerDashboardController';
 
 export function ScrapingDashboard() {
@@ -22,47 +22,49 @@ export function ScrapingDashboard() {
       )}
 
       <div className={styles.topGrid}>
-        <Card className={styles.createTaskCard}>
+        <Card className={styles.createRunCard}>
           <CardContent>
             <SourcePicker
               sources={controller.sources}
               selectedSourceId={controller.selectedSourceId}
               onSelectSource={controller.selectSource}
             />
-            <TaskComposer
+            <RunComposer
               source={controller.selectedSource}
               formValues={controller.formValues}
               isSubmitting={controller.isSubmitting}
-              onSubmit={controller.handleCreateTask}
+              onSubmit={controller.handleCreateRun}
               onFieldChange={controller.updateFormValue}
             />
           </CardContent>
         </Card>
       </div>
 
-      <Card className={styles.tasksCard}>
+      <Card className={styles.runsCard}>
         <CardHeader className={styles.sectionHeader}>
           <CardTitle>任務進度</CardTitle>
         </CardHeader>
-        <CardContent className={styles.taskWorkspace}>
-          <TaskRail
+        <CardContent className={styles.runWorkspace}>
+          <RunRail
             isLoading={controller.isLoading}
-            tasks={controller.tasks}
-            activeTaskId={controller.activeTaskId}
+            runs={controller.runs}
+            activeRunId={controller.activeRunId}
             nowTimestamp={controller.nowTimestamp}
-            onSelectTask={controller.selectTask}
+            onSelectRun={controller.selectRun}
           />
 
-          <div className={styles.taskPreview}>
-            <TaskDetailPanel
-              activeTask={controller.activeTask}
-              taskDetail={controller.activeTaskDetail}
+          <div className={styles.runPreview}>
+            <RunDetailPanel
+              activeRun={controller.activeRun}
+              artifacts={controller.activeRunArtifacts}
+              events={controller.activeRunEvents}
               activeErrorMessage={controller.activeErrorMessage}
               executionTimeline={controller.executionTimeline}
               nowTimestamp={controller.nowTimestamp}
               activeArtifactId={controller.artifactPreview.activeArtifactId}
-              onTaskAction={controller.handleTaskAction}
-              onDeleteTask={controller.handleDeleteTask}
+              isRunViewLoading={controller.isRunViewLoading}
+              onRunAction={controller.handleRunAction}
+              onDeleteRun={controller.handleDeleteRun}
               onOpenPreview={(artifact) => void controller.artifactPreview.openPreview(artifact)}
             />
           </div>

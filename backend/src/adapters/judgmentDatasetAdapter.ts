@@ -17,13 +17,10 @@ export class JudgmentDatasetAdapter implements SourceAdapter {
       url.searchParams.set('skip', String(target.skip));
     }
 
-    await context.updateWorkItem({
-      status: 'fetching_detail',
+    await context.beginStage('fetching_detail', {
       progress: 10,
-      currentStage: 'fetching_detail',
-      lastMessage: '下載司法院開放資料中',
+      message: '下載司法院開放資料中',
       sourceLocator: url.toString(),
-      startedAt: new Date().toISOString(),
     });
     await context.emit('info', 'work-item-status', '開始下載裁判書開放資料。', { fileSetId: target.fileSetId });
 
@@ -54,7 +51,7 @@ export class JudgmentDatasetAdapter implements SourceAdapter {
         JSON.stringify(items.slice(0, 5), null, 2),
         '```',
       ].join('\n');
-      await context.updateWorkItem({ itemsTotal: items.length, itemsProcessed: items.length, progress: 70, currentStage: 'normalizing', lastMessage: `已正規化 ${items.length} 筆 JSON 資料` });
+      await context.beginStage('normalizing', { itemsTotal: items.length, itemsProcessed: items.length, progress: 70, message: `已正規化 ${items.length} 筆 JSON 資料` });
     } else if (contentType.includes('csv') || contentType.includes('text/plain')) {
       const rows = parse(response.text(), { columns: true, skip_empty_lines: true }) as Array<Record<string, string>>;
       normalized = {
@@ -76,11 +73,11 @@ export class JudgmentDatasetAdapter implements SourceAdapter {
         JSON.stringify(rows.slice(0, 10), null, 2),
         '```',
       ].join('\n');
-      await context.updateWorkItem({ itemsTotal: rows.length, itemsProcessed: rows.length, progress: 70, currentStage: 'normalizing', lastMessage: `已正規化 ${rows.length} 筆 CSV 資料` });
+      await context.beginStage('normalizing', { itemsTotal: rows.length, itemsProcessed: rows.length, progress: 70, message: `已正規化 ${rows.length} 筆 CSV 資料` });
     } else {
       throw new Error(`第一版僅支援 JSON/CSV 型 fileset，收到的 content-type 為 ${contentType}`);
     }
-    await context.updateWorkItem({ status: 'writing_output', currentStage: 'writing_output', progress: 85, lastMessage: '寫入裁判資料快照中' });
+    await context.beginStage('writing_output', { progress: 85, message: '寫入裁判資料快照中' });
 
     await context.writeJsonArtifact('judgment_source_snapshot', `${target.label}-dataset`, normalized, {
       fileSetId: target.fileSetId,
@@ -90,12 +87,8 @@ export class JudgmentDatasetAdapter implements SourceAdapter {
       fileSetId: target.fileSetId,
       contentType,
     });
-    await context.updateWorkItem({
-      status: 'done',
-      currentStage: 'done',
-      progress: 100,
-      lastMessage: '完成裁判資料輸出',
-      finishedAt: new Date().toISOString(),
+    await context.complete({
+      message: '完成裁判資料輸出',
     });
   }
 }

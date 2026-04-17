@@ -9,17 +9,17 @@ describe('LawArtifactRegistryService', () => {
     const repository = new InMemoryCrawlRepository();
     await repository.ensureSourceCatalog(sourceRegistry.list());
 
-    const firstTaskId = await repository.createTask({
+    const firstTaskId = await repository.createRun({
       sourceId: 'moj-laws',
       targets: [{ kind: 'law', label: '民法', query: '民法', exactMatch: true }],
     });
-    const secondTaskId = await repository.createTask({
+    const secondTaskId = await repository.createRun({
       sourceId: 'moj-laws',
       targets: [{ kind: 'law', label: '民法', query: '民法', exactMatch: true }],
     });
 
-    const firstTask = await repository.getTaskDetail(firstTaskId);
-    const secondTask = await repository.getTaskDetail(secondTaskId);
+    const firstTask = await repository.getRunDetail(firstTaskId);
+    const secondTask = await repository.getRunDetail(secondTaskId);
     if (!firstTask || !secondTask) {
       throw new Error('Expected both in-memory tasks to exist.');
     }
@@ -80,13 +80,13 @@ describe('LawArtifactRegistryService', () => {
       documentMarkdown: '# 民法\n\n- 第 1 條：民事，法律所未規定者，依習慣；無習慣者，依法理。',
     };
 
-    const firstResult = await service.persistTaskLawArtifacts({
-      taskId: firstTask.id,
+    const firstResult = await service.persistRunLawArtifacts({
+      runId: firstTask.id,
       workItemId: firstTask.workItems[0].id,
       ...lawInput,
     });
-    const secondResult = await service.persistTaskLawArtifacts({
-      taskId: secondTask.id,
+    const secondResult = await service.persistRunLawArtifacts({
+      runId: secondTask.id,
       workItemId: secondTask.workItems[0].id,
       ...lawInput,
     });
@@ -95,10 +95,10 @@ describe('LawArtifactRegistryService', () => {
     expect(secondResult.contentStatus).toBe('reused');
     expect(storageWrites).toHaveLength(4);
 
-    const firstDetail = await repository.getTaskDetail(firstTask.id);
-    const secondDetail = await repository.getTaskDetail(secondTask.id);
+    const firstDetail = await repository.getRunDetail(firstTask.id);
+    const secondDetail = await repository.getRunDetail(secondTask.id);
     if (!firstDetail || !secondDetail) {
-      throw new Error('Expected persisted task details to exist.');
+      throw new Error('Expected persisted run details to exist.');
     }
 
     expect(firstDetail.artifacts).toHaveLength(4);

@@ -4,31 +4,33 @@ import type {
   EventLevel,
   EventType,
   SourceId,
-  TaskTargetConfig,
+  RunTargetConfig,
   WorkItemDto,
 } from '@legaladvisor/shared';
 import type { ArtifactWriteResult } from '../application/ports/runtime.js';
 
+type WorkItemStage = Exclude<WorkItemDto['status'], 'pending' | 'skipped' | 'failed'>;
+
+type WorkItemProgressPayload = {
+  progress?: number;
+  message: string;
+  sourceLocator?: string | null;
+  cursor?: Record<string, unknown> | null;
+  itemsProcessed?: number;
+  itemsTotal?: number;
+  warningCount?: number;
+  errorCount?: number;
+  retryCount?: number;
+};
+
 export interface AdapterContext {
-  taskId: string;
+  runId: string;
   workItemId: string;
   source: SourceOverviewDto;
-  target: TaskTargetConfig;
-  updateWorkItem(patch: {
-    status?: WorkItemDto['status'];
-    progress?: number;
-    currentStage?: string;
-    sourceLocator?: string | null;
-    cursor?: Record<string, unknown> | null;
-    lastMessage?: string;
-    itemsProcessed?: number;
-    itemsTotal?: number;
-    warningCount?: number;
-    errorCount?: number;
-    retryCount?: number;
-    startedAt?: string | null;
-    finishedAt?: string | null;
-  }): Promise<void>;
+  target: RunTargetConfig;
+  beginStage(stage: WorkItemStage, payload: WorkItemProgressPayload): Promise<void>;
+  advance(payload: Partial<Omit<WorkItemProgressPayload, 'message'>> & { message?: string }): Promise<void>;
+  complete(payload: Omit<WorkItemProgressPayload, 'progress'> & { progress?: number }): Promise<void>;
   emit(level: EventLevel, eventType: EventType, message: string, details?: Record<string, unknown>): Promise<void>;
   writeJsonArtifact(artifactKind: ArtifactKind, baseName: string, data: unknown, metadata?: Record<string, unknown>): Promise<ArtifactWriteResult>;
   writeMarkdownArtifact(artifactKind: ArtifactKind, baseName: string, content: string, metadata?: Record<string, unknown>): Promise<ArtifactWriteResult>;
@@ -63,4 +65,8 @@ export interface AdapterContext {
 export interface SourceAdapter {
   readonly sourceId: SourceId;
   run(context: AdapterContext): Promise<void>;
+}
+
+export interface SourceAdapterResolver {
+  get(sourceId: SourceId): SourceAdapter;
 }

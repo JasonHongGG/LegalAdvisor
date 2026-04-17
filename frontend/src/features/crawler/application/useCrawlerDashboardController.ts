@@ -1,72 +1,94 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CreateTaskRequestDto, SourceId, SourceOverviewDto, TaskDetailDto, TaskSummaryDto } from '@legaladvisor/shared';
+import type { FormEvent } from 'react';
+import type { CreateRunRequestDto, RunExecutionViewDto, RunSummaryDto, SourceId, SourceOverviewDto } from '@legaladvisor/shared';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../../lib/api';
 import { useArtifactPreview } from './useArtifactPreview';
-import { useTaskStream } from './useTaskStream';
-import { buildInitialFormValues, buildTaskTarget } from '../domain/taskComposer';
+import { useRunStream } from './useRunStream';
+import { buildInitialFormValues, buildRunTarget } from '../domain/runComposer';
 import { buildExecutionTimeline } from '../domain/timeline';
 import type { FieldValue } from '../domain/types';
 
-const AUTO_TASK_SYNC_MS = 15_000;
+const AUTO_RUN_SYNC_MS = 15_000;
 const AUTO_SOURCE_SYNC_MS = 60_000;
 
 export function useCrawlerDashboardController() {
   const navigate = useNavigate();
-  const { taskId: routeTaskId } = useParams<{ taskId?: string }>();
+  const { runId: routeRunId } = useParams<{ runId?: string }>();
   const artifactPreview = useArtifactPreview();
   const { resetPreview } = artifactPreview;
 
   const [sources, setSources] = useState<SourceOverviewDto[]>([]);
-  const [tasks, setTasks] = useState<TaskSummaryDto[]>([]);
-  const [taskDetails, setTaskDetails] = useState<Record<string, TaskDetailDto>>({});
+  const [runs, setRuns] = useState<RunSummaryDto[]>([]);
+  const [runViews, setRunViews] = useState<Record<string, RunExecutionViewDto>>({});
   const [selectedSourceId, setSelectedSourceId] = useState<SourceId | null>(null);
   const [formValues, setFormValues] = useState<Record<string, FieldValue>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [nowTimestamp, setNowTimestamp] = useState(() => Date.now());
-  const taskDetailsRef = useRef<Record<string, TaskDetailDto>>({});
+  const runViewsRef = useRef<Record<string, RunExecutionViewDto>>({});
 
   useEffect(() => {
-    taskDetailsRef.current = taskDetails;
-  }, [taskDetails]);
+    runViewsRef.current = runViews;
+  }, [runViews]);
 
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === selectedSourceId) ?? null,
     [selectedSourceId, sources],
   );
 
-  const activeTask = useMemo(
-    () => tasks.find((task) => task.id === routeTaskId) ?? null,
-    [routeTaskId, tasks],
+  const activeRun = useMemo(
+    () => runs.find((run) => run.id === routeRunId) ?? null,
+    [routeRunId, runs],
   );
 
-  const activeTaskDetail = useMemo(
-    () => (activeTask ? taskDetails[activeTask.id] ?? null : null),
-    [activeTask, taskDetails],
+  const activeRunView = useMemo(
+    () => (activeRun ? runViews[activeRun.id] ?? null : null),
+    [activeRun, runViews],
+  );
+
+  const activeRunTimelineEntries = useMemo(
+    () => activeRunView?.timeline ?? [],
+    [activeRunView],
+  );
+
+  const activeRunArtifacts = useMemo(
+    () => activeRunView?.artifacts ?? null,
+    [activeRunView],
+  );
+
+  const activeRunEvents = useMemo(
+    () => activeRunView?.events ?? null,
+    [activeRunView],
+  );
+
+  const isRunViewLoading = useMemo(
+    () => Boolean(activeRun && !activeRunView),
+    [activeRun, activeRunView],
   );
 
   const activeErrorMessage = useMemo(() => {
-    if (!activeTask) {
+    if (!activeRun) {
       return null;
     }
-    const failedItem = activeTaskDetail?.workItems.find((workItem) => workItem.status === 'failed' && workItem.lastMessage);
-    if (failedItem?.lastMessage) {
-      return failedItem.lastMessage;
-    }
-    if (['failed', 'partial_success'].includes(activeTask.status) && activeTask.summary) {
-      return activeTask.summary;
-    }
-    return null;
-  }, [activeTask, activeTaskDetail]);
 
-  const executionTimeline = useMemo(() => {
-    if (!activeTask || !activeTaskDetail) {
-      return [];
+    const failedTimelineEntry = [...activeRunTimelineEntries].reverse().find((entry) => entry.stateTone === 'failed');
+    if (failedTimelineEntry?.title) {
+      return failedTimelineEntry.title;
     }
-    return buildExecutionTimeline(activeTaskDetail, activeTask, nowTimestamp);
-  }, [activeTask, activeTaskDetail, nowTimestamp]);
+
+    if (['failed', 'partial_success'].includes(activeRun.status) && activeRun.summary) {
+      return activeRun.summary;
+    }
+
+    return null;
+  }, [activeRun, activeRunTimelineEntries]);
+
+  const executionTimeline = useMemo(
+    () => buildExecutionTimeline(activeRunTimelineEntries, nowTimestamp),
+    [activeRunTimelineEntries, nowTimestamp],
+  );
 
   const syncSources = useCallback(async (includeHealthRefresh = false) => {
     const nextSources = includeHealthRefresh
@@ -78,59 +100,63 @@ export function useCrawlerDashboardController() {
       if (current && nextSources.some((source) => source.id === current)) {
         return current;
       }
+
       return nextSources[0]?.id ?? null;
     });
   }, []);
 
-  const refreshTasks = useCallback(async () => {
-    const nextTasks = await api.listTasks();
-    setTasks(nextTasks);
+  const refreshRuns = useCallback(async () => {
+    const nextRuns = await api.listRuns();
+    setRuns(nextRuns);
 
-    if (nextTasks.length === 0) {
-      if (routeTaskId) {
+    if (nextRuns.length === 0) {
+      if (routeRunId) {
         navigate('/scraping', { replace: true });
       }
       return;
     }
 
-    if (!routeTaskId) {
-      navigate(`/scraping/${nextTasks[0].id}`, { replace: true });
+    if (!routeRunId) {
+      navigate(`/scraping/${nextRuns[0].id}`, { replace: true });
       return;
     }
 
-    if (!nextTasks.some((task) => task.id === routeTaskId)) {
-      navigate(`/scraping/${nextTasks[0].id}`, { replace: true });
+    if (!nextRuns.some((run) => run.id === routeRunId)) {
+      navigate(`/scraping/${nextRuns[0].id}`, { replace: true });
     }
-  }, [navigate, routeTaskId]);
+  }, [navigate, routeRunId]);
 
-  const loadTaskDetail = useCallback(async (taskId: string, force = false) => {
-    if (!force && taskDetailsRef.current[taskId]) {
-      return taskDetailsRef.current[taskId];
+  const loadRunView = useCallback(async (runId: string, force = false) => {
+    if (!force && runViewsRef.current[runId]) {
+      return runViewsRef.current[runId];
     }
 
-    const detail = await api.getTask(taskId);
-    if (detail) {
-      setTaskDetails((current) => {
-        const next = { ...current, [taskId]: detail };
-        taskDetailsRef.current = next;
-        return next;
-      });
-      return detail;
-    }
-    return null;
+    const nextView = await api.getRunView(runId);
+    setRunViews((current) => {
+      const next = { ...current, [runId]: nextView };
+      runViewsRef.current = next;
+      return next;
+    });
+    setRuns((current) => current.map((run) => (run.id === runId ? nextView.run : run)));
+    return nextView;
   }, []);
+
+  const refreshRunView = useCallback(async (runId: string, force = false) => {
+    await loadRunView(runId, force);
+  }, [loadRunView]);
 
   const refreshAll = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage(null);
+
     try {
-      await Promise.all([syncSources(true), refreshTasks()]);
+      await Promise.all([syncSources(true), refreshRuns()]);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '無法載入頁面資料');
     } finally {
       setIsLoading(false);
     }
-  }, [refreshTasks, syncSources]);
+  }, [refreshRuns, syncSources]);
 
   useEffect(() => {
     setFormValues(buildInitialFormValues(selectedSource));
@@ -142,24 +168,24 @@ export function useCrawlerDashboardController() {
 
   useEffect(() => {
     resetPreview();
-    if (routeTaskId) {
-      void loadTaskDetail(routeTaskId);
+    if (routeRunId) {
+      void refreshRunView(routeRunId);
     }
-  }, [loadTaskDetail, resetPreview, routeTaskId]);
+  }, [refreshRunView, resetPreview, routeRunId]);
 
-  useTaskStream({
-    activeTaskId: routeTaskId ?? null,
-    onRefreshTasks: refreshTasks,
+  useRunStream({
+    activeRunId: routeRunId ?? null,
+    onRefreshRuns: refreshRuns,
     onRefreshSources: async () => {
       await syncSources(false);
     },
-    onRefreshTaskDetail: async (taskId) => {
-      await loadTaskDetail(taskId, true);
+    onRefreshRunView: async (runId) => {
+      await refreshRunView(runId, true);
     },
   });
 
   useEffect(() => {
-    if (!activeTask || activeTask.finishedAt) {
+    if (!activeRun || activeRun.finishedAt) {
       return undefined;
     }
 
@@ -170,15 +196,15 @@ export function useCrawlerDashboardController() {
     return () => {
       window.clearInterval(timer);
     };
-  }, [activeTask]);
+  }, [activeRun]);
 
   useEffect(() => {
-    const taskTimer = window.setInterval(() => {
-      void refreshTasks();
-      if (routeTaskId) {
-        void loadTaskDetail(routeTaskId, true);
+    const runTimer = window.setInterval(() => {
+      void refreshRuns();
+      if (routeRunId) {
+        void refreshRunView(routeRunId, true);
       }
-    }, AUTO_TASK_SYNC_MS);
+    }, AUTO_RUN_SYNC_MS);
 
     const sourceTimer = window.setInterval(() => {
       void syncSources(true).catch((error: unknown) => {
@@ -187,12 +213,12 @@ export function useCrawlerDashboardController() {
     }, AUTO_SOURCE_SYNC_MS);
 
     return () => {
-      window.clearInterval(taskTimer);
+      window.clearInterval(runTimer);
       window.clearInterval(sourceTimer);
     };
-  }, [loadTaskDetail, refreshTasks, routeTaskId, syncSources]);
+  }, [refreshRunView, refreshRuns, routeRunId, syncSources]);
 
-  const handleCreateTask = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleCreateRun = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedSourceId) {
       return;
@@ -200,66 +226,71 @@ export function useCrawlerDashboardController() {
 
     setIsSubmitting(true);
     setErrorMessage(null);
+
     try {
-      const request: CreateTaskRequestDto = {
+      const request: CreateRunRequestDto = {
         sourceId: selectedSourceId,
-        targets: [buildTaskTarget(selectedSourceId, formValues)],
+        targets: [buildRunTarget(selectedSourceId, formValues)],
       };
-      const createdTask = await api.createTask(request);
-      setTasks((current) => [createdTask, ...current.filter((task) => task.id !== createdTask.id)]);
-      setTaskDetails((current) => ({ ...current, [createdTask.id]: createdTask }));
-      navigate(`/scraping/${createdTask.id}`);
+      const createdRun = await api.createRun(request);
+      setRuns((current) => [createdRun, ...current.filter((run) => run.id !== createdRun.id)]);
+      navigate(`/scraping/${createdRun.id}`);
+      await refreshRunView(createdRun.id, true);
       setFormValues(buildInitialFormValues(selectedSource));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '建立任務失敗');
     } finally {
       setIsSubmitting(false);
     }
-  }, [formValues, navigate, selectedSource, selectedSourceId]);
+  }, [formValues, navigate, refreshRunView, selectedSource, selectedSourceId]);
 
-  const handleTaskAction = useCallback(async (taskId: string, action: 'pause' | 'resume' | 'cancel' | 'retry') => {
+  const handleRunAction = useCallback(async (runId: string, action: 'pause' | 'resume' | 'cancel' | 'retry') => {
     setErrorMessage(null);
+
     try {
       if (action === 'pause') {
-        await api.pauseTask(taskId);
+        await api.pauseRun(runId);
       } else if (action === 'resume') {
-        await api.resumeTask(taskId);
+        await api.resumeRun(runId);
       } else if (action === 'cancel') {
-        await api.cancelTask(taskId);
+        await api.cancelRun(runId);
       } else {
-        await api.retryFailed(taskId);
+        await api.retryFailedRunItems(runId);
       }
-      await Promise.all([refreshTasks(), loadTaskDetail(taskId, true)]);
+
+      await Promise.all([refreshRuns(), refreshRunView(runId, true)]);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '任務操作失敗');
     }
-  }, [loadTaskDetail, refreshTasks]);
+  }, [refreshRunView, refreshRuns]);
 
-  const handleDeleteTask = useCallback(async (taskId: string) => {
+  const handleDeleteRun = useCallback(async (runId: string) => {
     setErrorMessage(null);
+
     try {
-      await api.deleteTask(taskId);
-      setTaskDetails((current) => {
+      await api.deleteRun(runId);
+      setRunViews((current) => {
         const next = { ...current };
-        delete next[taskId];
-        taskDetailsRef.current = next;
+        delete next[runId];
+        runViewsRef.current = next;
         return next;
       });
+      setRuns((current) => current.filter((run) => run.id !== runId));
       resetPreview();
-      await refreshTasks();
+      await refreshRuns();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '刪除任務失敗');
     }
-  }, [refreshTasks, resetPreview]);
+  }, [refreshRuns, resetPreview]);
 
   const updateFormValue = useCallback((name: string, value: FieldValue) => {
     setFormValues((current) => ({ ...current, [name]: value }));
   }, []);
 
-  const selectTask = useCallback((taskId: string) => {
-    navigate(`/scraping/${taskId}`);
-    void loadTaskDetail(taskId);
-  }, [loadTaskDetail, navigate]);
+  const selectRun = useCallback((runId: string) => {
+    navigate(`/scraping/${runId}`);
+    void refreshRunView(runId);
+  }, [navigate, refreshRunView]);
 
   return {
     isLoading,
@@ -271,17 +302,19 @@ export function useCrawlerDashboardController() {
     selectSource: setSelectedSourceId,
     formValues,
     updateFormValue,
-    handleCreateTask,
-    tasks,
-    activeTaskId: routeTaskId ?? null,
-    activeTask,
-    activeTaskDetail,
+    handleCreateRun,
+    runs,
+    activeRunId: routeRunId ?? null,
+    activeRun,
+    activeRunArtifacts,
+    activeRunEvents,
+    isRunViewLoading,
     activeErrorMessage,
     executionTimeline,
     nowTimestamp,
-    selectTask,
-    handleTaskAction,
-    handleDeleteTask,
+    selectRun,
+    handleRunAction,
+    handleDeleteRun,
     artifactPreview,
   };
 }

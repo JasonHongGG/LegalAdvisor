@@ -4,7 +4,7 @@ export type SourceId = (typeof sourceIds)[number];
 export const sourceHealthStatuses = ['unknown', 'healthy', 'degraded', 'down'] as const;
 export type SourceHealthStatus = (typeof sourceHealthStatuses)[number];
 
-export const taskStatuses = [
+export const runStatuses = [
   'draft',
   'queued',
   'dispatching',
@@ -15,7 +15,7 @@ export const taskStatuses = [
   'failed',
   'cancelled',
 ] as const;
-export type TaskStatus = (typeof taskStatuses)[number];
+export type RunStatus = (typeof runStatuses)[number];
 
 export const workItemStatuses = [
   'pending',
@@ -53,7 +53,7 @@ export const artifactRoles = [
 ] as const;
 export type ArtifactRole = (typeof artifactRoles)[number];
 
-export const artifactContentStatuses = ['task-only', 'new', 'reused'] as const;
+export const artifactContentStatuses = ['run-only', 'new', 'reused'] as const;
 export type ArtifactContentStatus = (typeof artifactContentStatuses)[number];
 
 export const artifactPreviewKinds = ['json', 'markdown', 'text', 'unsupported'] as const;
@@ -66,13 +66,17 @@ export const eventLevels = ['info', 'warning', 'error'] as const;
 export type EventLevel = (typeof eventLevels)[number];
 
 export const eventTypes = [
-  'task-created',
-  'task-status',
+  'run-created',
+  'run-status',
   'work-item-status',
+  'work-item-progress',
   'log',
   'artifact-emitted',
 ] as const;
 export type EventType = (typeof eventTypes)[number];
+
+export const timelineStateTones = ['done', 'running', 'failed', 'cancelled'] as const;
+export type TimelineStateTone = (typeof timelineStateTones)[number];
 
 export interface SourceFormFieldDto {
   name: string;
@@ -97,7 +101,7 @@ export interface SourceOverviewDto {
   lastCheckedAt: string | null;
   lastErrorMessage: string | null;
   capabilities: string[];
-  taskBuilderFields: SourceFormFieldDto[];
+  runBuilderFields: SourceFormFieldDto[];
 }
 
 export interface LawTargetConfig {
@@ -122,20 +126,20 @@ export interface JudgmentDatasetTargetConfig {
   skip?: number;
 }
 
-export type TaskTargetConfig = LawTargetConfig | JudicialListTargetConfig | JudgmentDatasetTargetConfig;
+export type RunTargetConfig = LawTargetConfig | JudicialListTargetConfig | JudgmentDatasetTargetConfig;
 
-export interface TaskTargetDto {
+export interface RunTargetDto {
   id: string;
-  taskId: string;
+  runId: string;
   targetKind: TargetKind;
   label: string;
-  config: TaskTargetConfig;
+  config: RunTargetConfig;
   createdAt: string;
 }
 
 export interface ArtifactDto {
   id: string;
-  taskId: string;
+  runId: string;
   workItemId: string | null;
   artifactKind: ArtifactKind;
   artifactRole: ArtifactRole;
@@ -161,10 +165,11 @@ export interface ArtifactPreviewDto {
   lineCount: number | null;
 }
 
-export interface TaskEventDto {
+export interface RunEventDto {
   id: string;
-  taskId: string;
+  runId: string;
   workItemId: string | null;
+  sequenceNo: number;
   eventType: EventType;
   level: EventLevel;
   message: string;
@@ -172,10 +177,32 @@ export interface TaskEventDto {
   occurredAt: string;
 }
 
+export interface RunTimelineEntryDto {
+  id: string;
+  runId: string;
+  workItemId: string | null;
+  sequenceNo: number;
+  eventType: EventType;
+  level: EventLevel;
+  title: string;
+  context: string | null;
+  stateLabel: string;
+  stateTone: TimelineStateTone;
+  occurredAt: string;
+  endedAt: string | null;
+}
+
+export interface RunExecutionViewDto {
+  run: RunSummaryDto;
+  timeline: RunTimelineEntryDto[];
+  events: RunEventDto[];
+  artifacts: ArtifactDto[];
+}
+
 export interface WorkItemDto {
   id: string;
-  taskId: string;
-  taskTargetId: string | null;
+  runId: string;
+  runTargetId: string | null;
   sequenceNo: number;
   label: string;
   status: WorkItemStatus;
@@ -193,12 +220,12 @@ export interface WorkItemDto {
   finishedAt: string | null;
   updatedAt: string;
   artifacts: ArtifactDto[];
-  recentEvents: TaskEventDto[];
+  recentEvents: RunEventDto[];
 }
 
-export interface TaskManifestDto {
+export interface RunManifestDto {
   schemaVersion: string;
-  taskId: string;
+  runId: string;
   sourceId: SourceId;
   sourceName: string;
   generatedAt: string;
@@ -231,11 +258,11 @@ export interface TaskManifestDto {
   }>;
 }
 
-export interface TaskSummaryDto {
+export interface RunSummaryDto {
   id: string;
   sourceId: SourceId;
   sourceName: string;
-  status: TaskStatus;
+  status: RunStatus;
   summary: string;
   overallProgress: number;
   targetCount: number;
@@ -251,22 +278,22 @@ export interface TaskSummaryDto {
   updatedAt: string;
   lastEventAt: string | null;
   etaSeconds: number | null;
-  targets: TaskTargetDto[];
+  targets: RunTargetDto[];
 }
 
-export interface TaskDetailDto extends TaskSummaryDto {
+export interface RunDetailDto extends RunSummaryDto {
   workItems: WorkItemDto[];
-  recentEvents: TaskEventDto[];
+  recentEvents: RunEventDto[];
   artifacts: ArtifactDto[];
-  manifest: TaskManifestDto | null;
+  manifest: RunManifestDto | null;
 }
 
-export interface CreateTaskRequestDto {
+export interface CreateRunRequestDto {
   sourceId: SourceId;
-  targets: TaskTargetConfig[];
+  targets: RunTargetConfig[];
 }
 
-export interface TaskControlResponseDto {
-  taskId: string;
-  status: TaskStatus;
+export interface RunControlResponseDto {
+  runId: string;
+  status: RunStatus;
 }

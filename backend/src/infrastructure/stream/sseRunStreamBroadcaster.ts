@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import type { Response } from 'express';
-import type { TaskStreamPublisher } from '../../application/ports/runtime.js';
+import type { RunStreamPublisher } from '../../application/ports/runtime.js';
 
-export class SseTaskStreamBroadcaster implements TaskStreamPublisher {
+export class SseRunStreamBroadcaster implements RunStreamPublisher {
   private readonly clients = new Map<string, Response>();
 
   subscribe(response: Response) {
@@ -27,7 +27,7 @@ export class SseTaskStreamBroadcaster implements TaskStreamPublisher {
     });
   }
 
-  publish(payload: Parameters<TaskStreamPublisher['publish']>[0]) {
+  publish(payload: Parameters<RunStreamPublisher['publish']>[0]) {
     for (const [clientId, response] of this.clients.entries()) {
       try {
         this.publishTo(response, payload);
@@ -38,7 +38,7 @@ export class SseTaskStreamBroadcaster implements TaskStreamPublisher {
     }
   }
 
-  private publishTo(response: Response, payload: Parameters<TaskStreamPublisher['publish']>[0]) {
+  private publishTo(response: Response, payload: Parameters<RunStreamPublisher['publish']>[0]) {
     response.write(`data: ${JSON.stringify(payload)}\n\n`);
   }
 }

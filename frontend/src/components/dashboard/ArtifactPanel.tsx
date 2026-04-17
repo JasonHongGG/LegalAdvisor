@@ -8,7 +8,7 @@ import { artifactContentStatusLabel, artifactLabel, artifactRoleLabel, artifactR
 import { api } from '../../lib/api';
 
 type ArtifactPanelProps = {
-  taskId: string;
+  runId: string;
   artifacts: ArtifactDto[];
   activeArtifactId: string | null;
   onOpenPreview: (artifact: ArtifactDto) => void;
@@ -32,7 +32,7 @@ function artifactAccentClass(artifactKind: ArtifactDto['artifactKind']) {
 
 const roleOrder: ArtifactDto['artifactRole'][] = ['machine-source', 'provenance', 'version-evidence', 'review-output', 'crawler-output', 'debug'];
 
-export function ArtifactPanel({ taskId, artifacts, activeArtifactId, onOpenPreview }: ArtifactPanelProps) {
+export function ArtifactPanel({ runId, artifacts, activeArtifactId, onOpenPreview }: ArtifactPanelProps) {
   const groupedArtifacts = roleOrder
     .map((role) => ({
       role,
@@ -41,13 +41,13 @@ export function ArtifactPanel({ taskId, artifacts, activeArtifactId, onOpenPrevi
     .filter((group) => group.artifacts.length > 0);
 
   const handleDownloadManifest = () => {
-    void api.downloadManifest(taskId).catch((error) => {
+    void api.downloadManifest(runId).catch((error) => {
       window.alert(error instanceof Error ? `下載 manifest 失敗：${error.message}` : '下載 manifest 失敗');
     });
   };
 
   const handleDownloadArchive = () => {
-    void api.downloadTaskArchive(taskId).catch((error) => {
+    void api.downloadRunArchive(runId).catch((error) => {
       window.alert(error instanceof Error ? `下載全部檔案失敗：${error.message}` : '下載全部檔案失敗');
     });
   };

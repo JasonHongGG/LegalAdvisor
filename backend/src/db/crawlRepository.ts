@@ -1,19 +1,20 @@
 import { Pool } from 'pg';
 import type {
   ArtifactDto as CrawlArtifact,
-  TaskEventDto as CrawlEvent,
-  TaskManifestDto as CrawlManifest,
+  RunEventDto as CrawlEvent,
+  RunManifestDto as CrawlManifest,
   SourceOverviewDto as CrawlSourceRecord,
-  TaskDetailDto as CrawlTaskDetail,
-  TaskSummaryDto as CrawlTaskSummary,
-  TaskTargetDto as CrawlTaskTarget,
+  RunDetailDto as CrawlTaskDetail,
+  RunSummaryDto as CrawlTaskSummary,
+  RunTargetDto as CrawlTaskTarget,
+  RunTimelineEntryDto as CrawlTimelineEntry,
   WorkItemDto as CrawlWorkItem,
-  CreateTaskRequestDto as CreateTaskRequest,
+  CreateRunRequestDto as CreateTaskRequest,
   EventLevel,
   EventType,
   SourceId,
-  TaskTargetConfig,
-  TaskStatus,
+  RunTargetConfig,
+  RunStatus,
   WorkItemStatus,
 } from '@legaladvisor/shared';
 import type {
@@ -27,10 +28,10 @@ import type {
   EventRepository,
   InsertArtifactInput,
   InsertEventInput,
-  LinkedTaskArtifactInput,
+  LinkedRunArtifactInput,
   SourceHealthPatch,
   SourceRepository,
-  TaskRepository,
+  RunRepository,
 } from '../application/ports/repositories.js';
 import type { SourceCatalogEntry } from '../domain/sourceCatalog.js';
 import { createId } from '../utils.js';
@@ -55,7 +56,17 @@ function toIsoString(value: unknown): string | null {
   return value instanceof Date ? value.toISOString() : String(value);
 }
 
-export class CrawlRepository implements SourceRepository, TaskRepository, ArtifactRepository, EventRepository {
+function normalizeEventType(value: unknown): EventType {
+  if (value === 'run-created') {
+    return 'run-created';
+  }
+  if (value === 'run-status') {
+    return 'run-status';
+  }
+  return value as EventType;
+}
+
+export class CrawlRepository implements SourceRepository, RunRepository, ArtifactRepository, EventRepository {
   constructor(
     private readonly db: Pool,
     private readonly schema: string,
@@ -75,7 +86,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
         `
           insert into ${this.table('crawl_sources')} (
             id, name, short_name, source_type, implementation_mode, base_url, description, notes,
-            capabilities, task_builder_fields, recommended_concurrency, updated_at
+            capabilities, run_builder_fields, recommended_concurrency, updated_at
           ) values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, now()
           )
@@ -88,7 +99,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
             description = excluded.description,
             notes = excluded.notes,
             capabilities = excluded.capabilities,
-            task_builder_fields = excluded.task_builder_fields,
+            run_builder_fields = excluded.run_builder_fields,
             recommended_concurrency = excluded.recommended_concurrency,
             updated_at = now()
         `,
@@ -102,7 +113,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
           source.description,
           source.notes,
           JSON.stringify(source.capabilities),
-          JSON.stringify(source.taskBuilderFields),
+          JSON.stringify(source.runBuilderFields),
           source.recommendedConcurrency,
         ],
       );
@@ -129,9 +140,9 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     );
   }
 
-  async createTask(input: CreateTaskRequest) {
+  async createRun(input: CreateTaskRequest) {
     const client = await this.getClient();
-    const taskId = createId();
+    const runId = createId();
     try {
       await client.query('begin');
       const sourceResult = await client.query(`select * from ${this.table('crawl_sources')} where id = $1 limit 1`, [input.sourceId]);
@@ -141,11 +152,11 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
 
       await client.query(
         `
-          insert into ${this.table('crawl_tasks')} (
+          insert into ${this.table('crawl_runs')} (
             id, source_id, status, summary, target_count, total_work_items, queued_work_items, created_at, updated_at
           ) values ($1, $2, $3, $4, $5, $6, $7, now(), now())
         `,
-        [taskId, input.sourceId, 'queued', '等待工作器接手', input.targets.length, input.targets.length, input.targets.length],
+        [runId, input.sourceId, 'queued', '等待工作器接手', input.targets.length, input.targets.length, input.targets.length],
       );
 
       for (const [index, target] of input.targets.entries()) {
@@ -153,34 +164,34 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
         const workItemId = createId();
         await client.query(
           `
-            insert into ${this.table('crawl_task_targets')} (
-              id, task_id, target_kind, label, config, order_index, created_at
+            insert into ${this.table('crawl_run_targets')} (
+              id, run_id, target_kind, label, config, order_index, created_at
             ) values ($1, $2, $3, $4, $5::jsonb, $6, now())
           `,
-          [targetId, taskId, target.kind, target.label, JSON.stringify(target), index],
+          [targetId, runId, target.kind, target.label, JSON.stringify(target), index],
         );
 
         await client.query(
           `
             insert into ${this.table('crawl_work_items')} (
-              id, task_id, task_target_id, sequence_no, label, status, progress, current_stage, last_message, created_at, updated_at
+              id, run_id, run_target_id, sequence_no, label, status, progress, current_stage, last_message, created_at, updated_at
             ) values ($1, $2, $3, $4, $5, $6, 0, 'pending', '等待工作器接手', now(), now())
           `,
-          [workItemId, taskId, targetId, index + 1, target.label, 'pending'],
+          [workItemId, runId, targetId, index + 1, target.label, 'pending'],
         );
       }
 
       await client.query(
         `
           insert into ${this.table('crawl_events')} (
-            id, task_id, work_item_id, event_type, level, message, details, occurred_at
+            id, run_id, work_item_id, event_type, level, message, details, occurred_at
           ) values ($1, $2, null, $3, $4, $5, $6::jsonb, now())
         `,
-        [createId(), taskId, 'task-created', 'info', '任務已建立，等待排入佇列。', JSON.stringify({ sourceId: input.sourceId })],
+        [createId(), runId, 'run-created', 'info', '任務已建立，等待排入佇列。', JSON.stringify({ sourceId: input.sourceId })],
       );
 
       await client.query('commit');
-      return taskId;
+      return runId;
     } catch (error) {
       await client.query('rollback');
       throw error;
@@ -189,7 +200,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     }
   }
 
-  async listTaskSummaries(): Promise<CrawlTaskSummary[]> {
+  async listRunSummaries(): Promise<CrawlTaskSummary[]> {
     const result = await this.db.query(`
       select
         t.*,
@@ -198,7 +209,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
           json_agg(
             json_build_object(
               'id', tt.id,
-              'taskId', tt.task_id,
+              'runId', tt.run_id,
               'targetKind', tt.target_kind,
               'label', tt.label,
               'config', tt.config,
@@ -208,18 +219,18 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
           ) filter (where tt.id is not null),
           '[]'::json
         ) as targets
-      from ${this.table('crawl_tasks')} t
+      from ${this.table('crawl_runs')} t
       join ${this.table('crawl_sources')} s on s.id = t.source_id
-      left join ${this.table('crawl_task_targets')} tt on tt.task_id = t.id
+      left join ${this.table('crawl_run_targets')} tt on tt.run_id = t.id
       group by t.id, s.name
       order by t.updated_at desc
     `);
 
-    return result.rows.map((row) => this.mapTaskSummary(row));
+    return result.rows.map((row) => this.mapRunSummary(row));
   }
 
-  async getTaskDetail(taskId: string): Promise<CrawlTaskDetail | null> {
-    const taskResult = await this.db.query(
+  async getRunSummary(runId: string): Promise<CrawlTaskSummary | null> {
+    const runResult = await this.db.query(
       `
         select
           t.*,
@@ -228,7 +239,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
             json_agg(
               json_build_object(
                 'id', tt.id,
-                'taskId', tt.task_id,
+                'runId', tt.run_id,
                 'targetKind', tt.target_kind,
                 'label', tt.label,
                 'config', tt.config,
@@ -238,27 +249,34 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
             ) filter (where tt.id is not null),
             '[]'::json
           ) as targets
-        from ${this.table('crawl_tasks')} t
+        from ${this.table('crawl_runs')} t
         join ${this.table('crawl_sources')} s on s.id = t.source_id
-        left join ${this.table('crawl_task_targets')} tt on tt.task_id = t.id
+        left join ${this.table('crawl_run_targets')} tt on tt.run_id = t.id
         where t.id = $1
         group by t.id, s.name
       `,
-      [taskId],
+      [runId],
     );
 
-    if (!taskResult.rowCount) {
+    if (!runResult.rowCount) {
       return null;
     }
 
-    const summary = this.mapTaskSummary(taskResult.rows[0]);
-    const [workItemsResult, artifacts, eventsResult] = await Promise.all([
-      this.db.query(`select * from ${this.table('crawl_work_items')} where task_id = $1 order by sequence_no asc`, [taskId]),
-      this.listTaskArtifacts(taskId),
-      this.db.query(`select * from ${this.table('crawl_events')} where task_id = $1 order by occurred_at desc limit 200`, [taskId]),
+    return this.mapRunSummary(runResult.rows[0]);
+  }
+
+  async getRunDetail(runId: string): Promise<CrawlTaskDetail | null> {
+    const summary = await this.getRunSummary(runId);
+    if (!summary) {
+      return null;
+    }
+
+    const [workItemsResult, artifacts, events] = await Promise.all([
+      this.db.query(`select * from ${this.table('crawl_work_items')} where run_id = $1 order by sequence_no asc`, [runId]),
+      this.listRunArtifacts(runId),
+      this.listRunEvents(runId, { limit: 500 }),
     ]);
 
-    const events = eventsResult.rows.map((row) => this.mapEvent(row));
     const workItems = workItemsResult.rows.map((row) => this.mapWorkItem(row, artifacts, events));
     const manifest = this.buildManifest(summary, workItems, artifacts);
 
@@ -271,12 +289,12 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     };
   }
 
-  async getTaskStatus(taskId: string): Promise<TaskStatus | null> {
-    const result = await this.db.query(`select status from ${this.table('crawl_tasks')} where id = $1 limit 1`, [taskId]);
-    return (result.rows[0]?.status as TaskStatus | undefined) ?? null;
+  async getRunStatus(runId: string): Promise<RunStatus | null> {
+    const result = await this.db.query(`select status from ${this.table('crawl_runs')} where id = $1 limit 1`, [runId]);
+    return (result.rows[0]?.status as RunStatus | undefined) ?? null;
   }
 
-  async deleteTask(taskId: string) {
+  async deleteRun(runId: string) {
     const client = await this.getClient();
     try {
       await client.query('begin');
@@ -284,14 +302,14 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
       const linkedArtifacts = await client.query(
         `
           select distinct artifact.id, artifact.content_id, artifact.canonical_document_id, artifact.canonical_version_id
-          from ${this.table('crawl_task_artifact_links')} link
+          from ${this.table('crawl_run_artifact_links')} link
           join ${this.table('artifacts')} artifact on artifact.id = link.artifact_id
-          where link.task_id = $1
+          where link.run_id = $1
         `,
-        [taskId],
+        [runId],
       );
 
-      await client.query(`delete from ${this.table('crawl_tasks')} where id = $1`, [taskId]);
+      await client.query(`delete from ${this.table('crawl_runs')} where id = $1`, [runId]);
 
       const removableArtifactIds = linkedArtifacts.rows
         .filter((row) => !row.canonical_document_id && !row.canonical_version_id)
@@ -303,7 +321,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
             delete from ${this.table('artifacts')} artifact
             where artifact.id = any($1::text[])
               and not exists (
-                select 1 from ${this.table('crawl_task_artifact_links')} link where link.artifact_id = artifact.id
+                select 1 from ${this.table('crawl_run_artifact_links')} link where link.artifact_id = artifact.id
               )
           `,
           [removableArtifactIds],
@@ -333,16 +351,16 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     }
   }
 
-  async setTaskStatus(taskId: string, status: TaskStatus, summary?: string) {
+  async setRunStatus(runId: string, status: RunStatus, summary?: string) {
     await this.db.query(
       `
-        update ${this.table('crawl_tasks')}
+        update ${this.table('crawl_runs')}
         set status = $2, summary = coalesce($3, summary), updated_at = now(),
             started_at = case when $2 = 'running' and started_at is null then now() else started_at end,
             finished_at = case when $2 in ('completed', 'partial_success', 'failed', 'cancelled') then now() else finished_at end
         where id = $1
       `,
-      [taskId, status, summary ?? null],
+      [runId, status, summary ?? null],
     );
   }
 
@@ -359,18 +377,18 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     );
   }
 
-  async resetFailedWorkItems(taskId: string) {
+  async resetFailedRunItems(runId: string) {
     await this.db.query(
       `
         update ${this.table('crawl_work_items')}
         set status = 'pending', progress = 0, current_stage = 'pending', last_message = '重新排入佇列', updated_at = now()
-        where task_id = $1 and status = 'failed'
+        where run_id = $1 and status = 'failed'
       `,
-      [taskId],
+      [runId],
     );
   }
 
-  async recomputeTaskStats(taskId: string) {
+  async recomputeRunStats(runId: string) {
     const aggregateResult = await this.db.query(
       `
         select
@@ -384,15 +402,15 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
           coalesce(sum(warning_count), 0)::int as warning_count,
           coalesce(sum(error_count), 0)::int as error_count
         from ${this.table('crawl_work_items')}
-        where task_id = $1
+        where run_id = $1
       `,
-      [taskId],
+      [runId],
     );
 
     const stats = aggregateResult.rows[0];
-    const taskStatus = await this.getTaskStatus(taskId);
-    let nextStatus = taskStatus;
-    if (taskStatus && !['paused', 'cancelled'].includes(taskStatus)) {
+    const runStatus = await this.getRunStatus(runId);
+    let nextStatus = runStatus;
+    if (runStatus && !['paused', 'cancelled'].includes(runStatus)) {
       const total = Number(stats.total_work_items ?? 0);
       const completed = Number(stats.completed_work_items ?? 0);
       const failed = Number(stats.failed_work_items ?? 0);
@@ -417,7 +435,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
 
     await this.db.query(
       `
-        update ${this.table('crawl_tasks')}
+        update ${this.table('crawl_runs')}
         set
           status = $2,
           overall_progress = $3,
@@ -433,7 +451,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
         where id = $1
       `,
       [
-        taskId,
+        runId,
         nextStatus,
         Number(stats.overall_progress ?? 0),
         Number(stats.total_work_items ?? 0),
@@ -448,15 +466,16 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
   }
 
   async appendEvent(input: InsertEventInput) {
-    await this.db.query(
+    const result = await this.db.query(
       `
         insert into ${this.table('crawl_events')} (
-          id, task_id, work_item_id, event_type, level, message, details, occurred_at
+          id, run_id, work_item_id, event_type, level, message, details, occurred_at
         ) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+        returning *
       `,
       [
         input.id,
-        input.taskId,
+        input.runId,
         input.workItemId,
         input.eventType,
         input.level,
@@ -465,7 +484,41 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
         input.occurredAt ?? new Date().toISOString(),
       ],
     );
-    await this.db.query(`update ${this.table('crawl_tasks')} set last_event_at = now(), updated_at = now() where id = $1`, [input.taskId]);
+    await this.db.query(`update ${this.table('crawl_runs')} set last_event_at = now(), updated_at = now() where id = $1`, [input.runId]);
+    return this.mapEvent(result.rows[0]);
+  }
+
+  async listRunEvents(runId: string, options?: { afterSequenceNo?: number; limit?: number }) {
+    const values: unknown[] = [runId];
+    const filters = ['run_id = $1'];
+
+    if (options?.afterSequenceNo !== undefined) {
+      values.push(options.afterSequenceNo);
+      filters.push(`sequence_no > $${values.length}`);
+    }
+
+    const limit = options?.limit ?? 500;
+    values.push(limit);
+
+    const result = await this.db.query(
+      `
+        select *
+        from ${this.table('crawl_events')}
+        where ${filters.join(' and ')}
+        order by sequence_no asc
+        limit $${values.length}
+      `,
+      values,
+    );
+
+    return result.rows.map((row) => this.mapEvent(row));
+  }
+
+  async listRunTimelineEntries(runId: string, options?: { afterSequenceNo?: number; limit?: number }) {
+    const events = await this.listRunEvents(runId, options);
+    return events
+      .filter((event) => event.eventType !== 'log')
+      .map((event) => this.mapTimelineEntry(event));
   }
 
   async ensureArtifactContent(input: EnsureArtifactContentInput) {
@@ -532,11 +585,11 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
 
       await client.query(
         `
-          insert into ${this.table('crawl_task_artifact_links')} (
-            id, task_id, work_item_id, artifact_id, content_status, created_at
+          insert into ${this.table('crawl_run_artifact_links')} (
+            id, run_id, work_item_id, artifact_id, content_status, created_at
           ) values ($1, $2, $3, $4, $5, $6)
         `,
-        [input.id, input.taskId, input.workItemId, artifactId, input.contentStatus, createdAt],
+        [input.id, input.runId, input.workItemId, artifactId, input.contentStatus, createdAt],
       );
       await client.query('commit');
     } catch (error) {
@@ -558,7 +611,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
       `
         select
           link.id,
-          link.task_id,
+          link.run_id,
           link.work_item_id,
           link.content_status,
           link.created_at,
@@ -572,7 +625,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
           artifact.hash_sha256,
           artifact.schema_version,
           artifact.metadata
-        from ${this.table('crawl_task_artifact_links')} link
+        from ${this.table('crawl_run_artifact_links')} link
         join ${this.table('artifacts')} artifact on artifact.id = link.artifact_id
         where link.id = $1
         limit 1
@@ -587,7 +640,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     const linkedResult = await this.db.query(
       `
         select content.content
-        from ${this.table('crawl_task_artifact_links')} link
+        from ${this.table('crawl_run_artifact_links')} link
         join ${this.table('artifacts')} artifact on artifact.id = link.artifact_id
         join ${this.table('artifact_contents')} content on content.id = artifact.content_id
         where link.id = $1
@@ -724,7 +777,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
 
     return {
       id: input.id,
-      taskId: `canonical:${input.lawVersionId}`,
+      runId: `canonical:${input.lawVersionId}`,
       workItemId: null,
       artifactKind: input.artifactKind,
       artifactRole: input.artifactRole,
@@ -741,17 +794,17 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     } satisfies CrawlArtifact;
   }
 
-  async linkTaskArtifact(input: LinkedTaskArtifactInput) {
+  async linkRunArtifact(input: LinkedRunArtifactInput) {
     const result = await this.db.query(
       `
-        insert into ${this.table('crawl_task_artifact_links')} (
-          id, task_id, work_item_id, artifact_id, content_status, created_at
+        insert into ${this.table('crawl_run_artifact_links')} (
+          id, run_id, work_item_id, artifact_id, content_status, created_at
         ) values ($1, $2, $3, $4, $5, $6)
-        on conflict (task_id, work_item_id, artifact_id) do update set
+        on conflict (run_id, work_item_id, artifact_id) do update set
           content_status = excluded.content_status
         returning id
       `,
-      [input.id ?? createId(), input.taskId, input.workItemId, input.canonicalArtifactId, input.contentStatus, input.createdAt ?? new Date().toISOString()],
+      [input.id ?? createId(), input.runId, input.workItemId, input.canonicalArtifactId, input.contentStatus, input.createdAt ?? new Date().toISOString()],
     );
 
     const artifact = await this.getArtifact(String(result.rows[0].id));
@@ -766,12 +819,12 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     return result.rowCount ? this.mapSource(result.rows[0]) : null;
   }
 
-  private async listTaskArtifacts(taskId: string) {
+  async listRunArtifacts(runId: string) {
     const result = await this.db.query(
       `
         select
           link.id,
-          link.task_id,
+          link.run_id,
           link.work_item_id,
           link.content_status,
           link.created_at,
@@ -785,12 +838,12 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
           artifact.hash_sha256,
           artifact.schema_version,
           artifact.metadata
-        from ${this.table('crawl_task_artifact_links')} link
+        from ${this.table('crawl_run_artifact_links')} link
         join ${this.table('artifacts')} artifact on artifact.id = link.artifact_id
-        where link.task_id = $1
+        where link.run_id = $1
         order by link.created_at desc
       `,
-      [taskId],
+      [runId],
     );
 
     return result.rows.map((row) => this.mapLinkedArtifact(row));
@@ -803,7 +856,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
 
     return {
       schemaVersion: '1.0.0',
-      taskId: summary.id,
+      runId: summary.id,
       sourceId: summary.sourceId,
       sourceName: summary.sourceName,
       generatedAt: new Date().toISOString(),
@@ -854,16 +907,16 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
       lastCheckedAt: toIsoString(row.last_checked_at),
       lastErrorMessage: row.last_error_message ? String(row.last_error_message) : null,
       capabilities: parseJson<string[]>(row.capabilities, []),
-      taskBuilderFields: parseJson(row.task_builder_fields, []),
+      runBuilderFields: parseJson(row.run_builder_fields, []),
     };
   }
 
-  private mapTaskSummary(row: Record<string, unknown>): CrawlTaskSummary {
+  private mapRunSummary(row: Record<string, unknown>): CrawlTaskSummary {
     return {
       id: String(row.id),
       sourceId: String(row.source_id) as SourceId,
       sourceName: String(row.source_name),
-      status: row.status as TaskStatus,
+      status: row.status as RunStatus,
       summary: String(row.summary ?? ''),
       overallProgress: Number(row.overall_progress ?? 0),
       targetCount: Number(row.target_count ?? 0),
@@ -881,10 +934,10 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
       etaSeconds: row.eta_seconds ? Number(row.eta_seconds) : null,
       targets: parseJson<Array<Record<string, unknown>>>(row.targets, []).map((target) => ({
         id: String(target.id),
-        taskId: String(target.taskId),
+        runId: String(target.runId),
         targetKind: target.targetKind as CrawlTaskTarget['targetKind'],
         label: String(target.label),
-        config: parseJson<TaskTargetConfig>(target.config as unknown, {} as TaskTargetConfig),
+        config: parseJson<RunTargetConfig>(target.config as unknown, {} as RunTargetConfig),
         createdAt: toIsoString(target.createdAt) ?? new Date().toISOString(),
       })),
     };
@@ -894,7 +947,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     const metadata = parseJson<Record<string, unknown>>(row.metadata, {});
     return {
       id: String(row.id),
-      taskId: String(row.task_id),
+      runId: String(row.run_id),
       workItemId: row.work_item_id ? String(row.work_item_id) : null,
       artifactKind: row.artifact_kind as CrawlArtifact['artifactKind'],
       artifactRole: row.artifact_role as CrawlArtifact['artifactRole'],
@@ -915,7 +968,7 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     const metadata = parseJson<Record<string, unknown>>(row.metadata, {});
     return {
       id: String(row.id),
-      taskId: `canonical:${String(row.canonical_version_id)}`,
+      runId: `canonical:${String(row.canonical_version_id)}`,
       workItemId: null,
       artifactKind: row.artifact_kind as CrawlArtifact['artifactKind'],
       artifactRole: row.artifact_role as CrawlArtifact['artifactRole'],
@@ -935,9 +988,10 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
   private mapEvent(row: Record<string, unknown>): CrawlEvent {
     return {
       id: String(row.id),
-      taskId: String(row.task_id),
+      runId: String(row.run_id),
       workItemId: row.work_item_id ? String(row.work_item_id) : null,
-      eventType: row.event_type as EventType,
+      sequenceNo: Number(row.sequence_no ?? 0),
+      eventType: normalizeEventType(row.event_type),
       level: row.level as EventLevel,
       message: String(row.message),
       details: parseJson<Record<string, unknown>>(row.details, {}),
@@ -945,12 +999,56 @@ export class CrawlRepository implements SourceRepository, TaskRepository, Artifa
     };
   }
 
+  private mapTimelineEntry(event: CrawlEvent): CrawlTimelineEntry {
+    const status = typeof event.details.status === 'string' ? event.details.status : null;
+    const label = typeof event.details.label === 'string' ? event.details.label : null;
+    const itemsProcessed = typeof event.details.itemsProcessed === 'number' ? event.details.itemsProcessed : null;
+    const itemsTotal = typeof event.details.itemsTotal === 'number' ? event.details.itemsTotal : null;
+
+    let stateTone: CrawlTimelineEntry['stateTone'] = 'done';
+    let stateLabel = '完成';
+    if (status === 'failed' || event.level === 'error') {
+      stateTone = 'failed';
+      stateLabel = '失敗';
+    } else if (status === 'cancelled') {
+      stateTone = 'cancelled';
+      stateLabel = '已取消';
+    } else if (status && !['done', 'completed', 'partial_success', 'failed', 'cancelled', 'skipped'].includes(status)) {
+      stateTone = 'running';
+      stateLabel = '進行中';
+    } else if (event.eventType === 'work-item-progress') {
+      stateTone = 'running';
+      stateLabel = '進行中';
+    }
+
+    const progressSuffix = itemsProcessed !== null && itemsTotal !== null && itemsTotal > 0
+      ? `（${itemsProcessed}/${itemsTotal}）`
+      : '';
+
+    return {
+      id: event.id,
+      runId: event.runId,
+      workItemId: event.workItemId,
+      sequenceNo: event.sequenceNo,
+      eventType: event.eventType,
+      level: event.level,
+      title: event.eventType === 'work-item-progress' ? `${event.message}${progressSuffix}` : event.message,
+      context: label ? `項目：${label}` : '主任務',
+      stateLabel,
+      stateTone,
+      occurredAt: event.occurredAt,
+      endedAt: ['done', 'completed', 'partial_success', 'failed', 'cancelled', 'skipped'].includes(status ?? '')
+        ? event.occurredAt
+        : null,
+    };
+  }
+
   private mapWorkItem(row: Record<string, unknown>, artifacts: CrawlArtifact[], events: CrawlEvent[]): CrawlWorkItem {
     const workItemId = String(row.id);
     return {
       id: workItemId,
-      taskId: String(row.task_id),
-      taskTargetId: row.task_target_id ? String(row.task_target_id) : null,
+      runId: String(row.run_id),
+      runTargetId: row.run_target_id ? String(row.run_target_id) : null,
       sequenceNo: Number(row.sequence_no ?? 0),
       label: String(row.label),
       status: row.status as WorkItemStatus,

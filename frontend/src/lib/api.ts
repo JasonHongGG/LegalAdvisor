@@ -1,11 +1,12 @@
 import type {
   ArtifactPreviewDto,
-  CreateTaskRequestDto,
+  CreateRunRequestDto,
+  RunStreamEvent,
   SourceOverviewDto,
-  TaskControlResponseDto,
-  TaskDetailDto,
-  TaskStreamEvent,
-  TaskSummaryDto,
+  RunControlResponseDto,
+  RunDetailDto,
+  RunExecutionViewDto,
+  RunSummaryDto,
 } from '@legaladvisor/shared';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -107,32 +108,35 @@ export const api = {
   refreshSources() {
     return requestJson<SourceOverviewDto[]>('/sources/refresh', { method: 'POST' });
   },
-  listTasks() {
-    return requestJson<TaskSummaryDto[]>('/tasks');
+  listRuns() {
+    return requestJson<RunSummaryDto[]>('/runs');
   },
-  getTask(taskId: string) {
-    return requestJson<TaskDetailDto | null>(`/tasks/${taskId}`);
+  getRun(runId: string) {
+    return requestJson<RunDetailDto | null>(`/runs/${runId}`);
   },
-  createTask(input: CreateTaskRequestDto) {
-    return requestJson<TaskDetailDto>('/tasks', {
+  getRunView(runId: string) {
+    return requestJson<RunExecutionViewDto>(`/runs/${runId}/view`);
+  },
+  createRun(input: CreateRunRequestDto) {
+    return requestJson<RunDetailDto>('/runs', {
       method: 'POST',
       body: JSON.stringify(input),
     });
   },
-  pauseTask(taskId: string) {
-    return requestJson<TaskControlResponseDto>(`/tasks/${taskId}/pause`, { method: 'POST' });
+  pauseRun(runId: string) {
+    return requestJson<RunControlResponseDto>(`/runs/${runId}/pause`, { method: 'POST' });
   },
-  resumeTask(taskId: string) {
-    return requestJson<TaskControlResponseDto>(`/tasks/${taskId}/resume`, { method: 'POST' });
+  resumeRun(runId: string) {
+    return requestJson<RunControlResponseDto>(`/runs/${runId}/resume`, { method: 'POST' });
   },
-  cancelTask(taskId: string) {
-    return requestJson<TaskControlResponseDto>(`/tasks/${taskId}/cancel`, { method: 'POST' });
+  cancelRun(runId: string) {
+    return requestJson<RunControlResponseDto>(`/runs/${runId}/cancel`, { method: 'POST' });
   },
-  deleteTask(taskId: string) {
-    return requestEmpty(`/tasks/${taskId}`, { method: 'DELETE' });
+  deleteRun(runId: string) {
+    return requestEmpty(`/runs/${runId}`, { method: 'DELETE' });
   },
-  retryFailed(taskId: string) {
-    return requestJson<TaskControlResponseDto>(`/tasks/${taskId}/retry-failed`, { method: 'POST' });
+  retryFailedRunItems(runId: string) {
+    return requestJson<RunControlResponseDto>(`/runs/${runId}/retry-failed`, { method: 'POST' });
   },
   downloadArtifact(artifactId: string, fallbackFileName = `artifact-${artifactId}`) {
     return downloadFile(`/artifacts/${artifactId}/download`, fallbackFileName);
@@ -140,16 +144,16 @@ export const api = {
   getArtifactPreview(artifactId: string) {
     return requestJson<ArtifactPreviewDto>(`/artifacts/${artifactId}/preview`);
   },
-  downloadManifest(taskId: string) {
-    return downloadFile(`/tasks/${taskId}/manifest/download`, `task-${taskId}-manifest.json`);
+  downloadManifest(runId: string) {
+    return downloadFile(`/runs/${runId}/manifest/download`, `run-${runId}-manifest.json`);
   },
-  downloadTaskArchive(taskId: string) {
-    return downloadFile(`/tasks/${taskId}/artifacts/archive/download`, `task-${taskId}-artifacts.zip`);
+  downloadRunArchive(runId: string) {
+    return downloadFile(`/runs/${runId}/artifacts/archive/download`, `run-${runId}-artifacts.zip`);
   },
-  createTaskStream() {
-    return new EventSource(resolveApiUrl('/tasks/stream'));
+  createRunStream() {
+    return new EventSource(resolveApiUrl('/runs/stream'));
   },
-  parseTaskStreamEvent(value: string) {
-    return JSON.parse(value) as TaskStreamEvent;
+  parseRunStreamEvent(value: string) {
+    return JSON.parse(value) as RunStreamEvent;
   },
 };

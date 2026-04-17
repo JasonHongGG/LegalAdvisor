@@ -7,7 +7,7 @@ export type StoredArtifact = ArtifactWriteResult;
 export class StorageService implements ArtifactStoragePort {
   async writeJson(params: {
     sourceId: string;
-    taskId: string;
+    runId: string;
     workItemId: string | null;
     artifactKind: ArtifactKind;
     baseName: string;
@@ -25,7 +25,7 @@ export class StorageService implements ArtifactStoragePort {
 
   async writeMarkdown(params: {
     sourceId: string;
-    taskId: string;
+    runId: string;
     workItemId: string | null;
     artifactKind: ArtifactKind;
     baseName: string;
@@ -42,7 +42,7 @@ export class StorageService implements ArtifactStoragePort {
 
   private async writeBuffer(params: {
     sourceId: string;
-    taskId: string;
+    runId: string;
     workItemId: string | null;
     artifactKind: ArtifactKind;
     baseName: string;

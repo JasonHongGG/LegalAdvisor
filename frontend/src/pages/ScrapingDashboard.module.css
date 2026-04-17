@@ -21,8 +21,8 @@
   display: block;
 }
 
-.createTaskCard,
-.tasksCard {
+.createRunCard,
+.runsCard {
   overflow: hidden;
 }
 
@@ -115,7 +115,7 @@
 }
 
 .sourceHealthPill,
-.taskStatusBadge {
+.runStatusBadge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -156,7 +156,7 @@
   background: rgba(255, 255, 255, 0.02);
 }
 
-.taskForm {
+.runForm {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -321,29 +321,29 @@
   margin-top: 4px;
 }
 
-.tasksCard {
+.runsCard {
   min-height: 640px;
 }
 
-.taskWorkspace {
-  --task-surface-height: 640px;
+.runWorkspace {
+  --run-surface-height: 640px;
   display: grid;
   grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
   gap: 20px;
   align-items: stretch;
 }
 
-.taskRail {
+.runRail {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: var(--task-surface-height);
+  height: var(--run-surface-height);
   min-height: 0;
   overflow-y: auto;
   padding-right: 6px;
 }
 
-.taskRailItem {
+.runRailItem {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -357,25 +357,25 @@
   transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
 }
 
-.taskRailItem:hover {
+.runRailItem:hover {
   border-color: rgba(255, 255, 255, 0.18);
   background: rgba(255, 255, 255, 0.04);
   transform: translateY(-1px);
 }
 
-.taskRailItemActive {
+.runRailItemActive {
   border-color: rgba(96, 165, 250, 0.6);
   background: rgba(59, 130, 246, 0.12);
 }
 
-.taskRailTop {
+.runRailTop {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 
-.taskRailStatusGroup {
+.runRailStatusGroup {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -389,13 +389,13 @@
   line-height: 1.6;
 }
 
-.taskRailTitle,
+.runRailTitle,
 .previewTitle {
   font-size: 1rem;
   color: var(--text-primary);
 }
 
-.taskRailTitle {
+.runRailTitle {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -403,18 +403,18 @@
   white-space: nowrap;
 }
 
-.taskRailDuration {
+.runRailDuration {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.taskRailDuration {
+.runRailDuration {
   color: var(--text-secondary);
   font-size: 0.78rem;
 }
 
-.taskRailMetaRow {
+.runRailMetaRow {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -422,57 +422,57 @@
   font-size: 0.8rem;
 }
 
-.taskUpdatedAt,
-.taskRailSource {
+.runUpdatedAt,
+.runRailSource {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.task-running,
-.task-fetching_index,
-.task-fetching_detail,
-.task-normalizing,
-.task-parsing,
-.task-writing_output,
-.task-dispatching,
-.task-throttled {
+.run-running,
+.run-fetching_index,
+.run-fetching_detail,
+.run-normalizing,
+.run-parsing,
+.run-writing_output,
+.run-dispatching,
+.run-throttled {
   color: #93c5fd;
   background: rgba(59, 130, 246, 0.14);
 }
 
-.task-queued,
-.task-paused,
-.task-pending,
-.task-draft {
+.run-queued,
+.run-paused,
+.run-pending,
+.run-draft {
   color: #cbd5e1;
   background: rgba(148, 163, 184, 0.15);
 }
 
-.task-completed,
-.task-done {
+.run-completed,
+.run-done {
   color: #86efac;
   background: rgba(16, 185, 129, 0.14);
 }
 
-.task-partial_success,
-.task-skipped,
-.task-unknown {
+.run-partial_success,
+.run-skipped,
+.run-unknown {
   color: #fcd34d;
   background: rgba(245, 158, 11, 0.14);
 }
 
-.task-failed,
-.task-cancelled {
+.run-failed,
+.run-cancelled {
   color: #fca5a5;
   background: rgba(239, 68, 68, 0.14);
 }
 
-.taskPreview {
+.runPreview {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  height: var(--task-surface-height);
+  height: var(--run-surface-height);
   min-height: 0;
   padding: 4px;
 }
@@ -542,6 +542,13 @@
   gap: 14px;
 }
 
+.workstreamHeaderTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .workstreamHeader h4,
 .artifactHeader h4 {
   margin: 0;
@@ -553,6 +560,39 @@
   color: var(--text-secondary);
   font-size: 0.82rem;
   white-space: nowrap;
+}
+
+.workstreamBody {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.workstreamTabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workstreamTab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.workstreamTabActive {
+  border-color: rgba(96, 165, 250, 0.32);
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--text-primary);
 }
 
 .timelineList {
@@ -671,6 +711,94 @@
   white-space: nowrap;
 }
 
+.eventLogList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.eventLogItem {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.eventLogTop,
+.eventLogTitleRow,
+.eventLogMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.eventLogTitleRow {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.eventLogSequence {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #bfdbfe;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.eventLogTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.eventLogMeta {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  justify-content: flex-start;
+}
+
+.eventLogLevel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.eventLogLevel-info {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.eventLogLevel-warning {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.eventLogLevel-error {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.14);
+}
+
 .artifactScroller {
   display: flex;
   flex-direction: column;
@@ -731,20 +859,20 @@
 }
 
 @media (max-width: 1120px) {
-  .taskWorkspace {
+  .runWorkspace {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 720px) {
-  .taskRailTop,
-  .taskRailMetaRow {
+  .runRailTop,
+  .runRailMetaRow {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .taskWorkspace {
-    --task-surface-height: 440px;
+  .runWorkspace {
+    --run-surface-height: 440px;
   }
 
   .previewHeader,
@@ -752,6 +880,10 @@
   .artifactHeader {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .workstreamTabs {
+    width: 100%;
   }
 
   .sourcePicker {
@@ -764,7 +896,7 @@
 
   .workstream,
   .artifactPanel,
-  .taskRail {
+  .runRail {
     height: 100%;
   }
 }

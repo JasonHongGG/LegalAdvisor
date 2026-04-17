@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { deriveTaskStatus, isRunnableWorkItemStatus } from './taskPolicy.js';
+import { deriveRunStatus, isRunnableWorkItemStatus } from './runPolicy.js';
 
-describe('taskPolicy', () => {
+describe('runPolicy', () => {
   it('derives partial success when done and failed items coexist', () => {
-    const status = deriveTaskStatus(
+    const status = deriveRunStatus(
       [
         {
           id: '1',
-          taskId: 'task-1',
-          taskTargetId: 'target-1',
+          runId: 'run-1',
+          runTargetId: 'target-1',
           sequenceNo: 1,
           label: 'item-1',
           status: 'done',
@@ -30,8 +30,8 @@ describe('taskPolicy', () => {
         },
         {
           id: '2',
-          taskId: 'task-1',
-          taskTargetId: 'target-2',
+          runId: 'run-1',
+          runTargetId: 'target-2',
           sequenceNo: 2,
           label: 'item-2',
           status: 'failed',

@@ -1,20 +1,20 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { TaskRail } from './TaskRail';
+import { RunRail } from './RunRail';
 
-describe('TaskRail', () => {
-  it('renders tasks and forwards selection events', () => {
-    const onSelectTask = vi.fn();
+describe('RunRail', () => {
+  it('renders runs and forwards selection events', () => {
+    const onSelectRun = vi.fn();
 
     render(
-      <TaskRail
+      <RunRail
         isLoading={false}
-        activeTaskId={null}
+        activeRunId={null}
         nowTimestamp={Date.now()}
-        onSelectTask={onSelectTask}
-        tasks={[
+        onSelectRun={onSelectRun}
+        runs={[
           {
-            id: 'task-1',
+            id: 'run-1',
             sourceId: 'moj-laws',
             sourceName: '全國法規',
             status: 'queued',
@@ -36,7 +36,7 @@ describe('TaskRail', () => {
             targets: [
               {
                 id: 'target-1',
-                taskId: 'task-1',
+                runId: 'run-1',
                 targetKind: 'law',
                 label: '民法',
                 config: { kind: 'law', label: '民法', query: '民法', exactMatch: false },
@@ -49,6 +49,6 @@ describe('TaskRail', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /民法/i }));
-    expect(onSelectTask).toHaveBeenCalledWith('task-1');
+    expect(onSelectRun).toHaveBeenCalledWith('run-1');
   });
 });

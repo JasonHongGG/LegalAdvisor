@@ -1,8 +1,8 @@
 import PgBoss from 'pg-boss';
-import type { TaskQueuePort } from '../application/ports/runtime.js';
+import type { RunQueuePort } from '../application/ports/runtime.js';
 import type { AppConfig } from '../config.js';
 
-export class QueueService implements TaskQueuePort {
+export class QueueService implements RunQueuePort {
   private readonly boss: PgBoss;
   private started = false;
 
@@ -22,25 +22,25 @@ export class QueueService implements TaskQueuePort {
     });
   }
 
-  async start(handler: (taskId: string) => Promise<void>) {
+  async start(handler: (runId: string) => Promise<void>) {
     if (this.started) {
       return;
     }
     await this.boss.start();
-    await this.boss.work('crawl-task', async (jobs) => {
+    await this.boss.work('crawl-run', async (jobs) => {
       for (const job of jobs) {
-        const data = job.data as { taskId?: string };
-        if (!data.taskId) {
+        const data = job.data as { runId?: string };
+        if (!data.runId) {
           continue;
         }
-        await handler(data.taskId);
+        await handler(data.runId);
       }
     });
     this.started = true;
   }
 
-  async enqueueTask(taskId: string) {
-    await this.boss.send('crawl-task', { taskId });
+  async enqueueTask(runId: string) {
+    await this.boss.send('crawl-run', { runId });
   }
 
   async stop() {

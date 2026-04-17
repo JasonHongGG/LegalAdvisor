@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildInitialFormValues, buildTaskTarget } from './taskComposer';
+import { buildInitialFormValues, buildRunTarget } from './runComposer';
 
-describe('taskComposer domain helpers', () => {
+describe('runComposer domain helpers', () => {
   it('builds initial field values from source form definitions', () => {
     const values = buildInitialFormValues({
       id: 'moj-laws',
@@ -17,7 +17,7 @@ describe('taskComposer domain helpers', () => {
       lastCheckedAt: null,
       lastErrorMessage: null,
       capabilities: [],
-      taskBuilderFields: [
+      runBuilderFields: [
         { name: 'label', label: 'Label', type: 'text', required: true },
         { name: 'exactMatch', label: 'Exact', type: 'checkbox', required: false },
       ],
@@ -27,7 +27,7 @@ describe('taskComposer domain helpers', () => {
   });
 
   it('builds law target config with sensible fallbacks', () => {
-    const target = buildTaskTarget('moj-laws', { query: '民法', exactMatch: true });
+    const target = buildRunTarget('moj-laws', { query: '民法', exactMatch: true });
     expect(target).toEqual({ kind: 'law', label: '民法', query: '民法', exactMatch: true });
   });
 });

@@ -13,7 +13,7 @@ const catalog: SourceCatalogEntry[] = [
     supportedTargetKinds: ['law'],
     capabilities: ['health-check', 'crawl-law-archive', 'json-output', 'markdown-output'],
     recommendedConcurrency: 1,
-    taskBuilderFields: [
+    runBuilderFields: [
       { name: 'label', label: '任務名稱', type: 'text', required: true, placeholder: '例如：民法' },
       { name: 'query', label: '法規名稱或關鍵字', type: 'text', required: true, placeholder: '例如：民法' },
       { name: 'exactMatch', label: '精準比對名稱', type: 'checkbox', required: false, description: '僅接受完整相同的法規名稱。' },
@@ -31,7 +31,7 @@ const catalog: SourceCatalogEntry[] = [
     supportedTargetKinds: ['judicial-list'],
     capabilities: ['health-check', 'crawl-html-list', 'json-output', 'markdown-output'],
     recommendedConcurrency: 1,
-    taskBuilderFields: [
+    runBuilderFields: [
       { name: 'label', label: '任務名稱', type: 'text', required: true, placeholder: '例如：本會公告' },
       { name: 'startUrl', label: '起始列表網址', type: 'url', required: true, placeholder: 'https://www.judicial.gov.tw/tw/lp-1724-1.html' },
       { name: 'maxPages', label: '最多抓取頁數', type: 'number', required: true, placeholder: '3', description: '第一版建議先小批次測試。' },
@@ -49,7 +49,7 @@ const catalog: SourceCatalogEntry[] = [
     supportedTargetKinds: ['judgment-dataset'],
     capabilities: ['health-check', 'download-fileset', 'json-output', 'markdown-output'],
     recommendedConcurrency: 1,
-    taskBuilderFields: [
+    runBuilderFields: [
       { name: 'label', label: '任務名稱', type: 'text', required: true, placeholder: '例如：最高法院民事資料集' },
       { name: 'fileSetId', label: 'Fileset Id', type: 'number', required: true, placeholder: '1038', description: '可由司法院開放資料平台查得。第一版優先支援 JSON/CSV 檔型 fileset。' },
       { name: 'top', label: '取得筆數上限', type: 'number', required: false, placeholder: '50' },

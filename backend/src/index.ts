@@ -1,51 +1,53 @@
 import process from 'node:process';
 import { createApp } from './app.js';
+import { sourceAdapterRegistry } from './adapters/index.js';
 import type {
   ArtifactRepository,
   EventRepository,
   SourceRepository,
-  TaskRepository,
+  RunRepository,
 } from './application/ports/repositories.js';
-import type { TaskQueuePort } from './application/ports/runtime.js';
-import { TaskExecutionContextFactory } from './application/factories/taskExecutionContextFactory.js';
+import type { RunQueuePort } from './application/ports/runtime.js';
+import { RunExecutionContextFactory } from './application/factories/runExecutionContextFactory.js';
 import { CrawlerApplicationFacade } from './application/services/crawlerApplicationFacade.js';
 import { LawArtifactRegistryService } from './application/services/lawArtifactRegistryService.js';
 import { SourceCatalogService } from './application/services/sourceCatalogService.js';
-import { TaskActivityService } from './application/services/taskActivityService.js';
-import { TaskCommandService } from './application/services/taskCommandService.js';
-import { TaskExecutionService } from './application/services/taskExecutionService.js';
-import { TaskQueryService } from './application/services/taskQueryService.js';
+import { RunActivityService } from './application/services/runActivityService.js';
+import { RunCommandService } from './application/services/runCommandService.js';
+import { RunExecutionService } from './application/services/runExecutionService.js';
+import { RunLifecycleService } from './application/services/runLifecycleService.js';
+import { RunQueryService } from './application/services/runQueryService.js';
 import { loadConfig } from './config.js';
 import { CrawlRepository } from './db/crawlRepository.js';
 import { InMemoryCrawlRepository } from './db/inMemoryCrawlRepository.js';
 import { createPool } from './db/pool.js';
 import { HttpSourceHealthProbe } from './infrastructure/catalog/httpSourceHealthProbe.js';
-import { SseTaskStreamBroadcaster } from './infrastructure/stream/sseTaskStreamBroadcaster.js';
+import { SseRunStreamBroadcaster } from './infrastructure/stream/sseRunStreamBroadcaster.js';
 import { MemoryQueueService } from './services/memoryQueueService.js';
 import { QueueService } from './services/queueService.js';
 import { StorageService } from './services/storageService.js';
 
 const config = loadConfig();
-const taskStreamBroadcaster = new SseTaskStreamBroadcaster();
+const runStreamBroadcaster = new SseRunStreamBroadcaster();
 const storageService = new StorageService();
 
 function createRuntime(): {
   sourceRepository: SourceRepository;
-  taskRepository: TaskRepository;
+  runRepository: RunRepository;
   artifactRepository: ArtifactRepository;
   eventRepository: EventRepository;
-  taskQueue: TaskQueuePort;
+  runQueue: RunQueuePort;
   closeDatabase: () => Promise<void>;
 } {
   if (!config.databaseWritesEnabled) {
     const repository = new InMemoryCrawlRepository();
-    console.log('DATABASE_WRITE_MODE=disabled, using in-memory task state. No database writes will be performed.');
+    console.log('DATABASE_WRITE_MODE=disabled, using in-memory run state. No database writes will be performed.');
     return {
       sourceRepository: repository,
-      taskRepository: repository,
+      runRepository: repository,
       artifactRepository: repository,
       eventRepository: repository,
-      taskQueue: new MemoryQueueService(),
+      runQueue: new MemoryQueueService(),
       closeDatabase: async () => {},
     };
   }
@@ -54,10 +56,10 @@ function createRuntime(): {
   const repository = new CrawlRepository(pool, config.supabaseSchema);
   return {
     sourceRepository: repository,
-    taskRepository: repository,
+    runRepository: repository,
     artifactRepository: repository,
     eventRepository: repository,
-    taskQueue: new QueueService(config),
+    runQueue: new QueueService(config),
     closeDatabase: async () => {
       await pool.end();
     },
@@ -66,35 +68,39 @@ function createRuntime(): {
 
 const runtime = createRuntime();
 const sourceHealthProbe = new HttpSourceHealthProbe();
-const taskActivityService = new TaskActivityService(runtime.eventRepository, taskStreamBroadcaster);
-const sourceCatalogService = new SourceCatalogService(runtime.sourceRepository, sourceHealthProbe, taskActivityService);
+const runActivityService = new RunActivityService(runtime.eventRepository, runStreamBroadcaster);
+const runLifecycleService = new RunLifecycleService(runtime.runRepository, runActivityService);
+const sourceCatalogService = new SourceCatalogService(runtime.sourceRepository, sourceHealthProbe, runActivityService);
 const lawArtifactRegistry = new LawArtifactRegistryService(runtime.artifactRepository, storageService);
-const taskQueryService = new TaskQueryService(runtime.taskRepository, runtime.artifactRepository);
-const taskCommandService = new TaskCommandService(runtime.taskRepository, runtime.taskQueue, taskActivityService);
-const taskExecutionContextFactory = new TaskExecutionContextFactory(
-  runtime.taskRepository,
+const runQueryService = new RunQueryService(runtime.runRepository, runtime.artifactRepository, runtime.eventRepository);
+const runCommandService = new RunCommandService(runtime.runRepository, runtime.runQueue, runActivityService, runLifecycleService);
+const runExecutionContextFactory = new RunExecutionContextFactory(
+  runtime.runRepository,
   runtime.artifactRepository,
   storageService,
-  taskActivityService,
+  runActivityService,
   lawArtifactRegistry,
+  runLifecycleService,
 );
-const taskExecutionService = new TaskExecutionService(
-  runtime.taskRepository,
+const runExecutionService = new RunExecutionService(
+  runtime.runRepository,
   runtime.sourceRepository,
-  taskActivityService,
-  taskExecutionContextFactory,
+  runActivityService,
+  runExecutionContextFactory,
+  runLifecycleService,
+  sourceAdapterRegistry,
 );
 const application = new CrawlerApplicationFacade(
   sourceCatalogService,
-  taskCommandService,
-  taskExecutionService,
-  taskQueryService,
-  taskStreamBroadcaster,
+  runCommandService,
+  runExecutionService,
+  runQueryService,
+  runStreamBroadcaster,
 );
 
 async function main() {
   await application.bootstrap();
-  await runtime.taskQueue.start((taskId) => application.processTask(taskId));
+  await runtime.runQueue.start((runId) => application.processRun(runId));
 
   const app = createApp(application);
   const server = app.listen(config.port, () => {
@@ -102,13 +108,13 @@ async function main() {
   });
 
   const heartbeat = setInterval(() => {
-    taskStreamBroadcaster.publish({ kind: 'heartbeat', occurredAt: new Date().toISOString() });
+    runStreamBroadcaster.publish({ kind: 'heartbeat', occurredAt: new Date().toISOString() });
   }, 15000);
 
   const shutdown = async () => {
     clearInterval(heartbeat);
     server.close();
-    await runtime.taskQueue.stop();
+    await runtime.runQueue.stop();
     await runtime.closeDatabase();
     process.exit(0);
   };

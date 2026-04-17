@@ -17,12 +17,12 @@ create table if not exists legal_advisor.crawl_sources (
   last_checked_at timestamptz,
   last_error_message text,
   capabilities jsonb not null default '[]'::jsonb,
-  task_builder_fields jsonb not null default '[]'::jsonb,
+  run_builder_fields jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-create table if not exists legal_advisor.crawl_tasks (
+create table if not exists legal_advisor.crawl_runs (
   id text primary key,
   source_id text not null references legal_advisor.crawl_sources(id),
   status text not null,
@@ -45,9 +45,9 @@ create table if not exists legal_advisor.crawl_tasks (
   updated_at timestamptz not null default now()
 );
 
-create table if not exists legal_advisor.crawl_task_targets (
+create table if not exists legal_advisor.crawl_run_targets (
   id text primary key,
-  task_id text not null references legal_advisor.crawl_tasks(id) on delete cascade,
+  run_id text not null references legal_advisor.crawl_runs(id) on delete cascade,
   target_kind text not null,
   label text not null,
   config jsonb not null,
@@ -57,8 +57,8 @@ create table if not exists legal_advisor.crawl_task_targets (
 
 create table if not exists legal_advisor.crawl_work_items (
   id text primary key,
-  task_id text not null references legal_advisor.crawl_tasks(id) on delete cascade,
-  task_target_id text references legal_advisor.crawl_task_targets(id) on delete set null,
+  run_id text not null references legal_advisor.crawl_runs(id) on delete cascade,
+  run_target_id text references legal_advisor.crawl_run_targets(id) on delete set null,
   sequence_no integer not null,
   label text not null,
   status text not null,
@@ -80,7 +80,7 @@ create table if not exists legal_advisor.crawl_work_items (
 
 create table if not exists legal_advisor.crawl_events (
   id text primary key,
-  task_id text not null references legal_advisor.crawl_tasks(id) on delete cascade,
+  run_id text not null references legal_advisor.crawl_runs(id) on delete cascade,
   work_item_id text references legal_advisor.crawl_work_items(id) on delete cascade,
   event_type text not null,
   level text not null,
@@ -91,7 +91,7 @@ create table if not exists legal_advisor.crawl_events (
 
 create table if not exists legal_advisor.crawl_artifacts (
   id text primary key,
-  task_id text not null references legal_advisor.crawl_tasks(id) on delete cascade,
+  run_id text not null references legal_advisor.crawl_runs(id) on delete cascade,
   work_item_id text references legal_advisor.crawl_work_items(id) on delete cascade,
   artifact_kind text not null,
   file_name text not null,
@@ -106,7 +106,7 @@ create table if not exists legal_advisor.crawl_artifacts (
 
 create table if not exists legal_advisor.crawl_checkpoints (
   id text primary key,
-  task_id text not null references legal_advisor.crawl_tasks(id) on delete cascade,
+  run_id text not null references legal_advisor.crawl_runs(id) on delete cascade,
   work_item_id text references legal_advisor.crawl_work_items(id) on delete cascade,
   checkpoint_key text not null,
   cursor jsonb not null,
@@ -124,7 +124,7 @@ create table if not exists legal_advisor.crawl_rate_limits (
 
 create table if not exists legal_advisor.crawl_run_summaries (
   id text primary key,
-  task_id text not null unique references legal_advisor.crawl_tasks(id) on delete cascade,
+  run_id text not null unique references legal_advisor.crawl_runs(id) on delete cascade,
   manifest_artifact_id text references legal_advisor.crawl_artifacts(id) on delete set null,
   success_count integer not null default 0,
   failed_count integer not null default 0,
@@ -134,14 +134,14 @@ create table if not exists legal_advisor.crawl_run_summaries (
   metadata jsonb not null default '{}'::jsonb
 );
 
-create index if not exists idx_crawl_tasks_source_updated on legal_advisor.crawl_tasks (source_id, updated_at desc);
-create index if not exists idx_crawl_tasks_status_updated on legal_advisor.crawl_tasks (status, updated_at desc);
-create index if not exists idx_crawl_task_targets_task on legal_advisor.crawl_task_targets (task_id, order_index);
-create index if not exists idx_crawl_work_items_task_status on legal_advisor.crawl_work_items (task_id, status, sequence_no);
+create index if not exists idx_crawl_runs_source_updated on legal_advisor.crawl_runs (source_id, updated_at desc);
+create index if not exists idx_crawl_runs_status_updated on legal_advisor.crawl_runs (status, updated_at desc);
+create index if not exists idx_crawl_run_targets_run on legal_advisor.crawl_run_targets (run_id, order_index);
+create index if not exists idx_crawl_work_items_run_status on legal_advisor.crawl_work_items (run_id, status, sequence_no);
 create index if not exists idx_crawl_work_items_updated on legal_advisor.crawl_work_items (updated_at desc);
-create index if not exists idx_crawl_events_task_time on legal_advisor.crawl_events (task_id, occurred_at desc);
+create index if not exists idx_crawl_events_run_time on legal_advisor.crawl_events (run_id, occurred_at desc);
 create index if not exists idx_crawl_events_work_item_time on legal_advisor.crawl_events (work_item_id, occurred_at desc);
-create index if not exists idx_crawl_artifacts_task on legal_advisor.crawl_artifacts (task_id, created_at desc);
+create index if not exists idx_crawl_artifacts_run on legal_advisor.crawl_artifacts (run_id, created_at desc);
 create index if not exists idx_crawl_artifacts_storage on legal_advisor.crawl_artifacts (storage_path);
-create unique index if not exists idx_crawl_checkpoints_unique on legal_advisor.crawl_checkpoints (task_id, work_item_id, checkpoint_key);
+create unique index if not exists idx_crawl_checkpoints_unique on legal_advisor.crawl_checkpoints (run_id, work_item_id, checkpoint_key);
 create unique index if not exists idx_crawl_rate_limits_source on legal_advisor.crawl_rate_limits (source_id);

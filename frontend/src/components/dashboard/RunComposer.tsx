@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
 import type { SourceOverviewDto } from '@legaladvisor/shared';
 import { CirclePlay, FileText, Info } from 'lucide-react';
 import { clsx } from 'clsx';
-import styles from './TaskComposer.module.css';
+import styles from './RunComposer.module.css';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
+import { ScrollableRail } from '../ui/ScrollableRail';
 import { Tooltip } from '../ui/Tooltip';
 import type { FieldValue } from '../../features/crawler/domain/types';
 
-type TaskComposerProps = {
+type RunComposerProps = {
   source: SourceOverviewDto | null;
   formValues: Record<string, FieldValue>;
   isSubmitting: boolean;
@@ -69,100 +69,14 @@ const COMMON_LAW_TAGS = [
   '組織犯罪防制條例',
 ] as const;
 
-export function TaskComposer({
+export function RunComposer({
   source,
   formValues,
   isSubmitting,
   onSubmit,
   onFieldChange,
-}: TaskComposerProps) {
-  const tagRailRef = useRef<HTMLDivElement | null>(null);
-  const dragStateRef = useRef({
-    isPointerDown: false,
-    startX: 0,
-    startScrollLeft: 0,
-    didDrag: false,
-  });
-  const [isTagRailDragging, setIsTagRailDragging] = useState(false);
-  const exactMatchField = source?.taskBuilderFields.find((field) => field.name === 'exactMatch') ?? null;
-
-  useEffect(() => {
-    const rail = tagRailRef.current;
-    if (!rail) {
-      return undefined;
-    }
-
-    const handleWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (rail.scrollWidth <= rail.clientWidth) {
-        return;
-      }
-
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-      if (delta === 0) {
-        return;
-      }
-
-      rail.scrollLeft += delta;
-    };
-
-    rail.addEventListener('wheel', handleWheel, { passive: false });
-
-    return () => {
-      rail.removeEventListener('wheel', handleWheel);
-    };
-  }, []);
-
-  function handleTagRailMouseDown(event: React.MouseEvent<HTMLDivElement>) {
-    if (event.button !== 0 || !tagRailRef.current) {
-      return;
-    }
-
-    event.preventDefault();
-    dragStateRef.current = {
-      isPointerDown: true,
-      startX: event.clientX,
-      startScrollLeft: tagRailRef.current.scrollLeft,
-      didDrag: false,
-    };
-  }
-
-  function handleTagRailMouseMove(event: React.MouseEvent<HTMLDivElement>) {
-    if (!dragStateRef.current.isPointerDown || !tagRailRef.current) {
-      return;
-    }
-
-    const distance = event.clientX - dragStateRef.current.startX;
-    if (!dragStateRef.current.didDrag && Math.abs(distance) > 4) {
-      dragStateRef.current.didDrag = true;
-      setIsTagRailDragging(true);
-    }
-
-    if (dragStateRef.current.didDrag) {
-      tagRailRef.current.scrollLeft = dragStateRef.current.startScrollLeft - distance;
-    }
-  }
-
-  function stopTagRailDrag() {
-    if (!dragStateRef.current.isPointerDown) {
-      return;
-    }
-
-    dragStateRef.current.isPointerDown = false;
-    setIsTagRailDragging(false);
-  }
-
-  function handleTagRailClickCapture(event: React.MouseEvent<HTMLDivElement>) {
-    if (!dragStateRef.current.didDrag) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    dragStateRef.current.didDrag = false;
-  }
+}: RunComposerProps) {
+  const exactMatchField = source?.runBuilderFields.find((field) => field.name === 'exactMatch') ?? null;
 
   return (
     <div className={styles.wrapper}>
@@ -177,7 +91,7 @@ export function TaskComposer({
         <div className={styles.empty}>目前還沒有可用來源。</div>
       ) : (
         <form className={styles.form} onSubmit={onSubmit}>
-          {source.taskBuilderFields
+          {source.runBuilderFields
               .filter((field) => field.name !== 'exactMatch')
               .map((field) => (
                 <label key={field.name} className={styles.fieldGroup}>
@@ -202,31 +116,27 @@ export function TaskComposer({
                     onChange={(event) => onFieldChange(field.name, event.target.value)}
                   />
                   {source.id === 'moj-laws' && field.name === 'query' && (
-                    <div
-                      ref={tagRailRef}
-                      className={clsx(styles.tagRail, isTagRailDragging && styles.tagRailDragging)}
-                      onMouseDown={handleTagRailMouseDown}
-                      onMouseMove={handleTagRailMouseMove}
-                      onMouseUp={stopTagRailDrag}
-                      onMouseLeave={stopTagRailDrag}
-                      onClickCapture={handleTagRailClickCapture}
+                    <ScrollableRail
+                      orientation="horizontal"
+                      className={styles.tagRail}
+                      draggingClassName={styles.tagRailDragging}
+                      contentClassName={styles.tagList}
+                      enableDrag
                     >
-                      <div className={styles.tagList}>
-                        {COMMON_LAW_TAGS.map((tag) => {
-                          const isActive = String(formValues.query ?? '') === tag;
-                          return (
-                            <button
-                              key={tag}
-                              type="button"
-                              className={clsx(styles.tag, isActive && styles.tagActive)}
-                              onClick={() => onFieldChange('query', tag)}
-                            >
-                              {tag}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                      {COMMON_LAW_TAGS.map((tag) => {
+                        const isActive = String(formValues.query ?? '') === tag;
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            className={clsx(styles.tag, isActive && styles.tagActive)}
+                            onClick={() => onFieldChange('query', tag)}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </ScrollableRail>
                   )}
                 </label>
               ))}

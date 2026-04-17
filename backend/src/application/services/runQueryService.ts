@@ -1,22 +1,43 @@
 import AdmZip from 'adm-zip';
-import type { ArtifactRepository, TaskRepository } from '../ports/repositories.js';
+import type { ArtifactRepository, EventRepository, RunRepository } from '../ports/repositories.js';
 import { AppError, NotFoundError } from '../../domain/errors.js';
 import { detectArtifactPreviewKind, parseJsonText, safeFileName, toUtf8Text } from '../../utils.js';
 
 const MAX_ARTIFACT_PREVIEW_BYTES = 1_500_000;
 
-export class TaskQueryService {
+export class RunQueryService {
   constructor(
-    private readonly taskRepository: TaskRepository,
+    private readonly runRepository: RunRepository,
     private readonly artifactRepository: ArtifactRepository,
+    private readonly eventRepository: EventRepository,
   ) {}
 
-  async listTasks() {
-    return this.taskRepository.listTaskSummaries();
+  async listRuns() {
+    return this.runRepository.listRunSummaries();
   }
 
-  async getTaskDetail(taskId: string) {
-    return this.taskRepository.getTaskDetail(taskId);
+  async getRunDetail(runId: string) {
+    return this.runRepository.getRunDetail(runId);
+  }
+
+  async getRunExecutionView(runId: string) {
+    const run = await this.runRepository.getRunSummary(runId);
+    if (!run) {
+      throw new NotFoundError('Run not found', { runId });
+    }
+
+    const [timeline, events, artifacts] = await Promise.all([
+      this.eventRepository.listRunTimelineEntries(runId, { limit: 1000 }),
+      this.eventRepository.listRunEvents(runId, { limit: 1000 }),
+      this.artifactRepository.listRunArtifacts(runId),
+    ]);
+
+    return {
+      run,
+      timeline,
+      events,
+      artifacts,
+    };
   }
 
   async downloadArtifact(artifactId: string) {
@@ -32,32 +53,32 @@ export class TaskQueryService {
     return { artifact, buffer };
   }
 
-  async downloadManifest(taskId: string) {
-    const task = await this.getTaskOrThrow(taskId);
-    if (!task.manifest) {
-      throw new AppError('Manifest not generated yet', 409, 'manifest_not_ready', { taskId });
+  async downloadManifest(runId: string) {
+    const run = await this.getRunOrThrow(runId);
+    if (!run.manifest) {
+      throw new AppError('Manifest not generated yet', 409, 'manifest_not_ready', { runId });
     }
 
     return {
-      fileName: `task-${safeFileName(taskId)}-manifest.json`,
+      fileName: `run-${safeFileName(runId)}-manifest.json`,
       contentType: 'application/json; charset=utf-8',
-      buffer: Buffer.from(JSON.stringify(task.manifest, null, 2), 'utf-8'),
+      buffer: Buffer.from(JSON.stringify(run.manifest, null, 2), 'utf-8'),
     };
   }
 
-  async downloadTaskArchive(taskId: string) {
-    const task = await this.getTaskOrThrow(taskId);
-    if (!task.artifacts.length) {
-      throw new AppError('Artifacts not generated yet', 409, 'artifacts_not_ready', { taskId });
+  async downloadRunArchive(runId: string) {
+    const run = await this.getRunOrThrow(runId);
+    if (!run.artifacts.length) {
+      throw new AppError('Artifacts not generated yet', 409, 'artifacts_not_ready', { runId });
     }
 
     const zip = new AdmZip();
-    const manifest = await this.downloadManifest(taskId).catch(() => null);
+    const manifest = await this.downloadManifest(runId).catch(() => null);
     if (manifest) {
       zip.addFile(manifest.fileName, manifest.buffer);
     }
 
-    for (const artifact of task.artifacts) {
+    for (const artifact of run.artifacts) {
       const buffer = await this.artifactRepository.getArtifactContent(artifact.id);
       if (!buffer) {
         throw new NotFoundError('Artifact content not found', { artifactId: artifact.id });
@@ -66,7 +87,7 @@ export class TaskQueryService {
     }
 
     return {
-      fileName: `task-${safeFileName(taskId)}-artifacts.zip`,
+      fileName: `run-${safeFileName(runId)}-artifacts.zip`,
       contentType: 'application/zip',
       buffer: zip.toBuffer(),
     };
@@ -119,12 +140,12 @@ export class TaskQueryService {
     };
   }
 
-  private async getTaskOrThrow(taskId: string) {
-    const task = await this.taskRepository.getTaskDetail(taskId);
-    if (!task) {
-      throw new NotFoundError('Task not found', { taskId });
+  private async getRunOrThrow(runId: string) {
+    const run = await this.runRepository.getRunDetail(runId);
+    if (!run) {
+      throw new NotFoundError('Run not found', { runId });
     }
-    return task;
+    return run;
   }
 
   private buildArchiveEntryPath(artifactRole: string, artifactKind: string, fileName: string) {

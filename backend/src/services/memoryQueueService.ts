@@ -1,25 +1,25 @@
-import type { TaskQueuePort } from '../application/ports/runtime.js';
+import type { RunQueuePort } from '../application/ports/runtime.js';
 
-export class MemoryQueueService implements TaskQueuePort {
-  private handler: ((taskId: string) => Promise<void>) | null = null;
+export class MemoryQueueService implements RunQueuePort {
+  private handler: ((runId: string) => Promise<void>) | null = null;
   private started = false;
   private pendingTaskIds: string[] = [];
   private processing = Promise.resolve();
 
-  async start(handler: (taskId: string) => Promise<void>) {
+  async start(handler: (runId: string) => Promise<void>) {
     this.handler = handler;
     this.started = true;
-    for (const taskId of this.pendingTaskIds.splice(0)) {
-      this.dispatch(taskId);
+    for (const runId of this.pendingTaskIds.splice(0)) {
+      this.dispatch(runId);
     }
   }
 
-  async enqueueTask(taskId: string) {
+  async enqueueTask(runId: string) {
     if (!this.started || !this.handler) {
-      this.pendingTaskIds.push(taskId);
+      this.pendingTaskIds.push(runId);
       return;
     }
-    this.dispatch(taskId);
+    this.dispatch(runId);
   }
 
   async stop() {
@@ -28,14 +28,14 @@ export class MemoryQueueService implements TaskQueuePort {
     this.pendingTaskIds = [];
   }
 
-  private dispatch(taskId: string) {
+  private dispatch(runId: string) {
     const handler = this.handler;
     if (!handler) {
       return;
     }
 
     this.processing = this.processing
-      .then(() => handler(taskId))
+      .then(() => handler(runId))
       .catch((error) => {
         console.error('Memory queue error:', error);
       });

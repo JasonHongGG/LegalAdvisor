@@ -6,17 +6,18 @@ import {
   artifactRoles,
   eventLevels,
   eventTypes,
+  runStatuses,
   sourceHealthStatuses,
   sourceIds,
   targetKinds,
-  taskStatuses,
+  timelineStateTones,
   workItemStatuses,
 } from '../../contracts/api/v1.js';
-import type { TaskStreamEvent } from '../../contracts/events/v1.js';
+import type { RunStreamEvent } from '../../contracts/events/v1.js';
 
 export const sourceIdSchema = z.enum(sourceIds);
 export const sourceHealthStatusSchema = z.enum(sourceHealthStatuses);
-export const taskStatusSchema = z.enum(taskStatuses);
+export const runStatusSchema = z.enum(runStatuses);
 export const workItemStatusSchema = z.enum(workItemStatuses);
 export const artifactKindSchema = z.enum(artifactKinds);
 export const artifactRoleSchema = z.enum(artifactRoles);
@@ -24,6 +25,7 @@ export const artifactContentStatusSchema = z.enum(artifactContentStatuses);
 export const artifactPreviewKindSchema = z.enum(artifactPreviewKinds);
 export const eventLevelSchema = z.enum(eventLevels);
 export const eventTypeSchema = z.enum(eventTypes);
+export const timelineStateToneSchema = z.enum(timelineStateTones);
 export const targetKindSchema = z.enum(targetKinds);
 
 export const sourceFormFieldSchema = z.object({
@@ -57,25 +59,25 @@ export const judgmentDatasetTargetConfigSchema = z.object({
   skip: z.number().int().min(0).optional(),
 });
 
-export const taskTargetConfigSchema = z.discriminatedUnion('kind', [
+export const runTargetConfigSchema = z.discriminatedUnion('kind', [
   lawTargetConfigSchema,
   judicialListTargetConfigSchema,
   judgmentDatasetTargetConfigSchema,
 ]);
 
-export const createTaskRequestSchema = z.object({
+export const createRunRequestSchema = z.object({
   sourceId: sourceIdSchema,
-  targets: z.array(taskTargetConfigSchema).min(1).max(20),
+  targets: z.array(runTargetConfigSchema).min(1).max(20),
 });
 
-export const taskControlResponseSchema = z.object({
-  taskId: z.string().min(1),
-  status: taskStatusSchema,
+export const runControlResponseSchema = z.object({
+  runId: z.string().min(1),
+  status: runStatusSchema,
 });
 
 export const artifactDtoSchema = z.object({
   id: z.string().min(1),
-  taskId: z.string().min(1),
+  runId: z.string().min(1),
   workItemId: z.string().nullable(),
   artifactKind: artifactKindSchema,
   artifactRole: artifactRoleSchema,
@@ -101,10 +103,11 @@ export const artifactPreviewDtoSchema = z.object({
   lineCount: z.number().int().nonnegative().nullable(),
 });
 
-export const taskEventDtoSchema = z.object({
+export const runEventDtoSchema = z.object({
   id: z.string().min(1),
-  taskId: z.string().min(1),
+  runId: z.string().min(1),
   workItemId: z.string().nullable(),
+  sequenceNo: z.number().int().nonnegative(),
   eventType: eventTypeSchema,
   level: eventLevelSchema,
   message: z.string().min(1),
@@ -112,19 +115,34 @@ export const taskEventDtoSchema = z.object({
   occurredAt: z.string().min(1),
 });
 
-export const taskTargetDtoSchema = z.object({
+export const runTimelineEntryDtoSchema = z.object({
   id: z.string().min(1),
-  taskId: z.string().min(1),
+  runId: z.string().min(1),
+  workItemId: z.string().nullable(),
+  sequenceNo: z.number().int().nonnegative(),
+  eventType: eventTypeSchema,
+  level: eventLevelSchema,
+  title: z.string().min(1),
+  context: z.string().nullable(),
+  stateLabel: z.string().min(1),
+  stateTone: timelineStateToneSchema,
+  occurredAt: z.string().min(1),
+  endedAt: z.string().nullable(),
+});
+
+export const runTargetDtoSchema = z.object({
+  id: z.string().min(1),
+  runId: z.string().min(1),
   targetKind: targetKindSchema,
   label: z.string().min(1),
-  config: taskTargetConfigSchema,
+  config: runTargetConfigSchema,
   createdAt: z.string().min(1),
 });
 
 export const workItemDtoSchema = z.object({
   id: z.string().min(1),
-  taskId: z.string().min(1),
-  taskTargetId: z.string().nullable(),
+  runId: z.string().min(1),
+  runTargetId: z.string().nullable(),
   sequenceNo: z.number().int().positive(),
   label: z.string().min(1),
   status: workItemStatusSchema,
@@ -142,12 +160,12 @@ export const workItemDtoSchema = z.object({
   finishedAt: z.string().nullable(),
   updatedAt: z.string().min(1),
   artifacts: z.array(artifactDtoSchema),
-  recentEvents: z.array(taskEventDtoSchema),
+  recentEvents: z.array(runEventDtoSchema),
 });
 
-export const taskManifestDtoSchema = z.object({
+export const runManifestDtoSchema = z.object({
   schemaVersion: z.string().min(1),
-  taskId: z.string().min(1),
+  runId: z.string().min(1),
   sourceId: sourceIdSchema,
   sourceName: z.string().min(1),
   generatedAt: z.string().min(1),
@@ -200,14 +218,14 @@ export const sourceOverviewDtoSchema = z.object({
   lastCheckedAt: z.string().nullable(),
   lastErrorMessage: z.string().nullable(),
   capabilities: z.array(z.string()),
-  taskBuilderFields: z.array(sourceFormFieldSchema),
+  runBuilderFields: z.array(sourceFormFieldSchema),
 });
 
-export const taskSummaryDtoSchema = z.object({
+export const runSummaryDtoSchema = z.object({
   id: z.string().min(1),
   sourceId: sourceIdSchema,
   sourceName: z.string().min(1),
-  status: taskStatusSchema,
+  status: runStatusSchema,
   summary: z.string(),
   overallProgress: z.number().min(0).max(100),
   targetCount: z.number().int().nonnegative(),
@@ -223,19 +241,28 @@ export const taskSummaryDtoSchema = z.object({
   updatedAt: z.string().min(1),
   lastEventAt: z.string().nullable(),
   etaSeconds: z.number().int().nonnegative().nullable(),
-  targets: z.array(taskTargetDtoSchema),
+  targets: z.array(runTargetDtoSchema),
 });
 
-export const taskDetailDtoSchema = taskSummaryDtoSchema.extend({
-  workItems: z.array(workItemDtoSchema),
-  recentEvents: z.array(taskEventDtoSchema),
+export const runExecutionViewDtoSchema = z.object({
+  run: runSummaryDtoSchema,
+  timeline: z.array(runTimelineEntryDtoSchema),
+  events: z.array(runEventDtoSchema),
   artifacts: z.array(artifactDtoSchema),
-  manifest: taskManifestDtoSchema.nullable(),
 });
 
-export const taskStreamEventSchema = z.union([
+export const runDetailDtoSchema = runSummaryDtoSchema.extend({
+  workItems: z.array(workItemDtoSchema),
+  recentEvents: z.array(runEventDtoSchema),
+  artifacts: z.array(artifactDtoSchema),
+  manifest: runManifestDtoSchema.nullable(),
+});
+
+export const runStreamEventSchema = z.union([
   z.object({ kind: z.literal('heartbeat'), occurredAt: z.string().min(1) }),
-  z.object({ kind: z.literal('task-created'), taskId: z.string().min(1), occurredAt: z.string().min(1) }),
-  z.object({ kind: z.literal('task-updated'), taskId: z.string().min(1), occurredAt: z.string().min(1) }),
+  z.object({ kind: z.literal('run-created'), runId: z.string().min(1), occurredAt: z.string().min(1) }),
+  z.object({ kind: z.literal('run-removed'), runId: z.string().min(1), occurredAt: z.string().min(1) }),
+  z.object({ kind: z.literal('run-overview-updated'), runId: z.string().min(1), occurredAt: z.string().min(1) }),
+  z.object({ kind: z.literal('run-view-updated'), runId: z.string().min(1), occurredAt: z.string().min(1) }),
   z.object({ kind: z.literal('source-updated'), sourceId: sourceIdSchema, occurredAt: z.string().min(1) }),
-]) satisfies z.ZodType<TaskStreamEvent>;
+]) satisfies z.ZodType<RunStreamEvent>;

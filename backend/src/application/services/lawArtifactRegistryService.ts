@@ -13,8 +13,8 @@ export class LawArtifactRegistryService {
     private readonly artifactStorage: ArtifactStoragePort,
   ) {}
 
-  async persistTaskLawArtifacts(input: {
-    taskId: string;
+  async persistRunLawArtifacts(input: {
+    runId: string;
     workItemId: string;
     sourceId: SourceId;
     query: string;
@@ -57,8 +57,8 @@ export class LawArtifactRegistryService {
 
     if (existingVersion) {
       for (const artifact of existingVersion.artifacts) {
-        await this.artifactRepository.linkTaskArtifact({
-          taskId: input.taskId,
+        await this.artifactRepository.linkRunArtifact({
+          runId: input.runId,
           workItemId: input.workItemId,
           lawDocumentId: existingVersion.lawDocumentId,
           lawVersionId: existingVersion.lawVersionId,
@@ -94,7 +94,7 @@ export class LawArtifactRegistryService {
     });
 
     const crawlMetadata = {
-      taskId: input.taskId,
+      runId: input.runId,
       workItemId: input.workItemId,
       crawledAt: new Date().toISOString(),
       matchedQuery: input.query,
@@ -153,7 +153,7 @@ export class LawArtifactRegistryService {
     };
 
     await this.persistCanonicalArtifact({
-      taskId: input.taskId,
+      runId: input.runId,
       workItemId: input.workItemId,
       lawDocumentId,
       lawVersionId,
@@ -161,7 +161,7 @@ export class LawArtifactRegistryService {
       artifactRole: 'provenance',
       stored: await this.artifactStorage.writeJson({
         sourceId: input.sourceId,
-        taskId: input.taskId,
+        runId: input.runId,
         workItemId: input.workItemId,
         artifactKind: 'law_source_snapshot',
         baseName: `${baseName}-source`,
@@ -174,7 +174,7 @@ export class LawArtifactRegistryService {
     });
 
     await this.persistCanonicalArtifact({
-      taskId: input.taskId,
+      runId: input.runId,
       workItemId: input.workItemId,
       lawDocumentId,
       lawVersionId,
@@ -182,7 +182,7 @@ export class LawArtifactRegistryService {
       artifactRole: 'machine-source',
       stored: await this.artifactStorage.writeJson({
         sourceId: input.sourceId,
-        taskId: input.taskId,
+        runId: input.runId,
         workItemId: input.workItemId,
         artifactKind: 'law_article_snapshot',
         baseName: `${baseName}-articles`,
@@ -195,7 +195,7 @@ export class LawArtifactRegistryService {
     });
 
     await this.persistCanonicalArtifact({
-      taskId: input.taskId,
+      runId: input.runId,
       workItemId: input.workItemId,
       lawDocumentId,
       lawVersionId,
@@ -203,7 +203,7 @@ export class LawArtifactRegistryService {
       artifactRole: 'version-evidence',
       stored: await this.artifactStorage.writeJson({
         sourceId: input.sourceId,
-        taskId: input.taskId,
+        runId: input.runId,
         workItemId: input.workItemId,
         artifactKind: 'law_revision_snapshot',
         baseName: `${baseName}-revisions`,
@@ -216,7 +216,7 @@ export class LawArtifactRegistryService {
     });
 
     await this.persistCanonicalArtifact({
-      taskId: input.taskId,
+      runId: input.runId,
       workItemId: input.workItemId,
       lawDocumentId,
       lawVersionId,
@@ -224,7 +224,7 @@ export class LawArtifactRegistryService {
       artifactRole: 'review-output',
       stored: await this.artifactStorage.writeMarkdown({
         sourceId: input.sourceId,
-        taskId: input.taskId,
+        runId: input.runId,
         workItemId: input.workItemId,
         artifactKind: 'law_document_snapshot',
         baseName: `${baseName}-document`,
@@ -244,7 +244,7 @@ export class LawArtifactRegistryService {
   }
 
   private async persistCanonicalArtifact(input: {
-    taskId: string;
+    runId: string;
     workItemId: string;
     lawDocumentId: string;
     lawVersionId: string;
@@ -275,8 +275,8 @@ export class LawArtifactRegistryService {
       metadata: input.stored.metadata,
     });
 
-    await this.artifactRepository.linkTaskArtifact({
-      taskId: input.taskId,
+    await this.artifactRepository.linkRunArtifact({
+      runId: input.runId,
       workItemId: input.workItemId,
       lawDocumentId: input.lawDocumentId,
       lawVersionId: input.lawVersionId,

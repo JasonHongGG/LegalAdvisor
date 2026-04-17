@@ -1,21 +1,21 @@
-import type { TaskStatus, WorkItemDto, WorkItemStatus } from '@legaladvisor/shared';
+import type { RunStatus, WorkItemDto, WorkItemStatus } from '@legaladvisor/shared';
 
-export const FINAL_TASK_STATUSES = new Set<TaskStatus>(['completed', 'partial_success', 'failed', 'cancelled']);
+export const FINAL_RUN_STATUSES = new Set<RunStatus>(['completed', 'partial_success', 'failed', 'cancelled']);
 export const EXECUTABLE_WORK_ITEM_STATUSES = new Set<WorkItemStatus>(['pending', 'failed']);
 
-export function isTaskExecutionBlocked(status: TaskStatus) {
+export function isRunExecutionBlocked(status: RunStatus) {
   return status === 'paused' || status === 'cancelled';
 }
 
-export function isTaskTerminal(status: TaskStatus) {
-  return FINAL_TASK_STATUSES.has(status);
+export function isRunTerminal(status: RunStatus) {
+  return FINAL_RUN_STATUSES.has(status);
 }
 
 export function isRunnableWorkItemStatus(status: WorkItemStatus) {
   return EXECUTABLE_WORK_ITEM_STATUSES.has(status);
 }
 
-export function deriveTaskStatus(workItems: WorkItemDto[], currentStatus: TaskStatus): TaskStatus {
+export function deriveRunStatus(workItems: WorkItemDto[], currentStatus: RunStatus): RunStatus {
   if (currentStatus === 'paused' || currentStatus === 'cancelled') {
     return currentStatus;
   }

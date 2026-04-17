@@ -5,7 +5,7 @@ import type {
   EventType,
   SourceOverviewDto,
 } from '@legaladvisor/shared';
-import type { TaskStreamEvent } from '@legaladvisor/shared';
+import type { RunStreamEvent } from '@legaladvisor/shared';
 import type { SourceCatalogEntry } from '../../domain/sourceCatalog.js';
 
 export interface ArtifactWriteResult {
@@ -22,7 +22,7 @@ export interface ArtifactWriteResult {
 export interface ArtifactStoragePort {
   writeJson(params: {
     sourceId: string;
-    taskId: string;
+    runId: string;
     workItemId: string | null;
     artifactKind: ArtifactKind;
     baseName: string;
@@ -31,7 +31,7 @@ export interface ArtifactStoragePort {
   }): Promise<ArtifactWriteResult>;
   writeMarkdown(params: {
     sourceId: string;
-    taskId: string;
+    runId: string;
     workItemId: string | null;
     artifactKind: ArtifactKind;
     baseName: string;
@@ -40,15 +40,15 @@ export interface ArtifactStoragePort {
   }): Promise<ArtifactWriteResult>;
 }
 
-export interface TaskQueuePort {
-  start(handler: (taskId: string) => Promise<void>): Promise<void>;
-  enqueueTask(taskId: string): Promise<void>;
+export interface RunQueuePort {
+  start(handler: (runId: string) => Promise<void>): Promise<void>;
+  enqueueTask(runId: string): Promise<void>;
   stop(): Promise<void>;
 }
 
-export interface TaskStreamPublisher {
+export interface RunStreamPublisher {
   subscribe(response: Response): void;
-  publish(payload: TaskStreamEvent): void;
+  publish(payload: RunStreamEvent): void;
 }
 
 export interface SourceHealthProbe {
@@ -58,16 +58,17 @@ export interface SourceHealthProbe {
   }>;
 }
 
-export interface TaskExecutionReporter {
-  appendTaskEvent(
-    taskId: string,
+export interface RunExecutionReporter {
+  appendRunEvent(
+    runId: string,
     workItemId: string | null,
     eventType: EventType,
     level: EventLevel,
     message: string,
     details?: Record<string, unknown>,
-  ): Promise<void>;
-  publishTaskCreated(taskId: string): void;
-  publishTaskUpdated(taskId: string): void;
+  ): Promise<{ sequenceNo: number }>;
+  publishRunCreated(runId: string): void;
+  publishRunRemoved(runId: string): void;
+  publishRunOverviewUpdated(runId: string): void;
   publishSourceUpdated(sourceId: SourceOverviewDto['id']): void;
 }

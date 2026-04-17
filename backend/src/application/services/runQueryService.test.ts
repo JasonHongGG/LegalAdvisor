@@ -1,12 +1,12 @@
 import AdmZip from 'adm-zip';
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, TaskDetailDto } from '@legaladvisor/shared';
-import { TaskQueryService } from './taskQueryService.js';
+import type { ArtifactDto, RunDetailDto, RunEventDto, RunSummaryDto, RunTimelineEntryDto } from '@legaladvisor/shared';
+import { RunQueryService } from './runQueryService.js';
 
 function createArtifact(overrides: Partial<ArtifactDto> = {}): ArtifactDto {
   return {
     id: 'artifact-1',
-    taskId: 'task-1',
+    runId: 'run-1',
     workItemId: 'work-item-1',
     artifactKind: 'law_article_snapshot',
     artifactRole: 'machine-source',
@@ -24,9 +24,9 @@ function createArtifact(overrides: Partial<ArtifactDto> = {}): ArtifactDto {
   };
 }
 
-function createTaskDetail(artifacts: ArtifactDto[]): TaskDetailDto {
+function createRunDetail(artifacts: ArtifactDto[]): RunDetailDto {
   return {
-    id: 'task-1',
+    id: 'run-1',
     sourceId: 'moj-laws',
     sourceName: '法務部全國法規資料庫',
     status: 'completed',
@@ -45,11 +45,11 @@ function createTaskDetail(artifacts: ArtifactDto[]): TaskDetailDto {
     updatedAt: '2026-04-16T00:05:00.000Z',
     lastEventAt: '2026-04-16T00:05:00.000Z',
     etaSeconds: null,
-    targets: [{ id: 'target-1', taskId: 'task-1', targetKind: 'law', label: '民法', config: { kind: 'law', label: '民法', query: '民法', exactMatch: true }, createdAt: '2026-04-16T00:00:00.000Z' }],
+    targets: [{ id: 'target-1', runId: 'run-1', targetKind: 'law', label: '民法', config: { kind: 'law', label: '民法', query: '民法', exactMatch: true }, createdAt: '2026-04-16T00:00:00.000Z' }],
     workItems: [{
       id: 'work-item-1',
-      taskId: 'task-1',
-      taskTargetId: 'target-1',
+      runId: 'run-1',
+      runTargetId: 'target-1',
       sequenceNo: 1,
       label: '民法',
       status: 'done',
@@ -73,7 +73,7 @@ function createTaskDetail(artifacts: ArtifactDto[]): TaskDetailDto {
     artifacts,
     manifest: {
       schemaVersion: '1.0.0',
-      taskId: 'task-1',
+      runId: 'run-1',
       sourceId: 'moj-laws',
       sourceName: '法務部全國法規資料庫',
       generatedAt: '2026-04-16T00:05:00.000Z',
@@ -94,7 +94,94 @@ function createTaskDetail(artifacts: ArtifactDto[]): TaskDetailDto {
   };
 }
 
-describe('TaskQueryService', () => {
+function createRunSummary(): RunSummaryDto {
+  return {
+    id: 'run-1',
+    sourceId: 'moj-laws',
+    sourceName: '法務部全國法規資料庫',
+    status: 'running',
+    summary: '工作器執行中',
+    overallProgress: 50,
+    targetCount: 1,
+    totalWorkItems: 1,
+    completedWorkItems: 0,
+    failedWorkItems: 0,
+    queuedWorkItems: 0,
+    runningWorkItems: 1,
+    warningCount: 0,
+    errorCount: 0,
+    startedAt: '2026-04-16T00:00:00.000Z',
+    finishedAt: null,
+    updatedAt: '2026-04-16T00:05:00.000Z',
+    lastEventAt: '2026-04-16T00:05:00.000Z',
+    etaSeconds: 60,
+    targets: [{ id: 'target-1', runId: 'run-1', targetKind: 'law', label: '民法', config: { kind: 'law', label: '民法', query: '民法', exactMatch: true }, createdAt: '2026-04-16T00:00:00.000Z' }],
+  };
+}
+
+function createRunEvent(): RunEventDto {
+  return {
+    id: 'evt-1',
+    runId: 'run-1',
+    workItemId: null,
+    sequenceNo: 1,
+    eventType: 'run-status',
+    level: 'info',
+    message: '工作器開始執行任務。',
+    details: { status: 'running' },
+    occurredAt: '2026-04-16T00:00:00.000Z',
+  };
+}
+
+function createRunTimelineEntry(): RunTimelineEntryDto {
+  return {
+    id: 'evt-1',
+    runId: 'run-1',
+    workItemId: null,
+    sequenceNo: 1,
+    eventType: 'run-status',
+    level: 'info',
+    title: '工作器開始執行任務。',
+    context: '主任務',
+    stateLabel: '進行中',
+    stateTone: 'running',
+    occurredAt: '2026-04-16T00:00:00.000Z',
+    endedAt: null,
+  };
+}
+
+describe('RunQueryService', () => {
+  it('builds a single execution view projection for the frontend detail panel', async () => {
+    const artifacts = [createArtifact()];
+    const timeline = [createRunTimelineEntry()];
+    const events = [createRunEvent()];
+
+    const runRepository = {
+      getRunSummary: async () => createRunSummary(),
+    };
+    const artifactRepository = {
+      async listRunArtifacts() {
+        return artifacts;
+      },
+    };
+    const eventRepository = {
+      async listRunTimelineEntries() {
+        return timeline;
+      },
+      async listRunEvents() {
+        return events;
+      },
+    };
+
+    const service = new RunQueryService(runRepository as never, artifactRepository as never, eventRepository as never);
+    await expect(service.getRunExecutionView('run-1')).resolves.toEqual({
+      run: createRunSummary(),
+      timeline,
+      events,
+      artifacts,
+    });
+  });
+
   it('packages a single manifest at archive root and uses role-based folders for artifacts', async () => {
     const artifacts = [
       createArtifact(),
@@ -108,23 +195,35 @@ describe('TaskQueryService', () => {
       }),
     ];
 
-    const taskRepository = {
-      listTaskSummaries: async () => [],
-      getTaskDetail: async () => createTaskDetail(artifacts),
+    const runRepository = {
+      listRunSummaries: async () => [],
+      getRunDetail: async () => createRunDetail(artifacts),
+      getRunSummary: async () => createRunSummary(),
     };
     const artifactRepository = {
       getArtifact: async () => null,
       async getArtifactContent(artifactId: string) {
         return Buffer.from(`payload:${artifactId}`, 'utf-8');
       },
+      async listRunArtifacts() {
+        return artifacts;
+      },
+    };
+    const eventRepository = {
+      async listRunTimelineEntries() {
+        return [];
+      },
+      async listRunEvents() {
+        return [];
+      },
     };
 
-    const service = new TaskQueryService(taskRepository as never, artifactRepository as never);
-    const archive = await service.downloadTaskArchive('task-1');
+    const service = new RunQueryService(runRepository as never, artifactRepository as never, eventRepository as never);
+    const archive = await service.downloadRunArchive('run-1');
     const zip = new AdmZip(archive.buffer);
     const entryNames = zip.getEntries().map((entry) => entry.entryName).sort();
 
-    expect(entryNames).toContain('task-task-1-manifest.json');
+    expect(entryNames).toContain('run-run-1-manifest.json');
     expect(entryNames).toContain('machine-source/law_article_snapshot/civil-code-articles.json');
     expect(entryNames).toContain('review-output/law_document_snapshot/civil-code.md');
     expect(entryNames.some((entryName) => entryName.startsWith('manifest/'))).toBe(false);

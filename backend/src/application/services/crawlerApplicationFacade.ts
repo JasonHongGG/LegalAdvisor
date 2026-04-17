@@ -1,25 +1,25 @@
 import type { Response } from 'express';
-import type { TaskStreamPublisher } from '../ports/runtime.js';
+import type { RunStreamPublisher } from '../ports/runtime.js';
 import type { SourceCatalogService } from './sourceCatalogService.js';
-import type { TaskCommandService } from './taskCommandService.js';
-import type { TaskExecutionService } from './taskExecutionService.js';
-import type { TaskQueryService } from './taskQueryService.js';
+import type { RunCommandService } from './runCommandService.js';
+import type { RunExecutionService } from './runExecutionService.js';
+import type { RunQueryService } from './runQueryService.js';
 
 export class CrawlerApplicationFacade {
   constructor(
     private readonly sourceCatalogService: SourceCatalogService,
-    private readonly taskCommandService: TaskCommandService,
-    private readonly taskExecutionService: TaskExecutionService,
-    private readonly taskQueryService: TaskQueryService,
-    private readonly taskStreamPublisher: TaskStreamPublisher,
+    private readonly runCommandService: RunCommandService,
+    private readonly runExecutionService: RunExecutionService,
+    private readonly runQueryService: RunQueryService,
+    private readonly runStreamPublisher: RunStreamPublisher,
   ) {}
 
   bootstrap() {
     return this.sourceCatalogService.bootstrap();
   }
 
-  subscribeToTaskStream(response: Response) {
-    this.taskStreamPublisher.subscribe(response);
+  subscribeToRunStream(response: Response) {
+    this.runStreamPublisher.subscribe(response);
   }
 
   listSources() {
@@ -30,55 +30,59 @@ export class CrawlerApplicationFacade {
     return this.sourceCatalogService.refreshSources();
   }
 
-  listTasks() {
-    return this.taskQueryService.listTasks();
+  listRuns() {
+    return this.runQueryService.listRuns();
   }
 
-  getTaskDetail(taskId: string) {
-    return this.taskQueryService.getTaskDetail(taskId);
+  getRunDetail(runId: string) {
+    return this.runQueryService.getRunDetail(runId);
   }
 
-  createTask(payload: unknown) {
-    return this.taskCommandService.createTask(payload);
+  getRunExecutionView(runId: string) {
+    return this.runQueryService.getRunExecutionView(runId);
   }
 
-  pauseTask(taskId: string) {
-    return this.taskCommandService.pauseTask(taskId);
+  createRun(payload: unknown) {
+    return this.runCommandService.createRun(payload);
   }
 
-  resumeTask(taskId: string) {
-    return this.taskCommandService.resumeTask(taskId);
+  pauseRun(runId: string) {
+    return this.runCommandService.pauseRun(runId);
   }
 
-  cancelTask(taskId: string) {
-    return this.taskCommandService.cancelTask(taskId);
+  resumeRun(runId: string) {
+    return this.runCommandService.resumeRun(runId);
   }
 
-  deleteTask(taskId: string) {
-    return this.taskCommandService.deleteTask(taskId);
+  cancelRun(runId: string) {
+    return this.runCommandService.cancelRun(runId);
   }
 
-  retryFailedItems(taskId: string) {
-    return this.taskCommandService.retryFailedItems(taskId);
+  deleteRun(runId: string) {
+    return this.runCommandService.deleteRun(runId);
   }
 
-  processTask(taskId: string) {
-    return this.taskExecutionService.processTask(taskId);
+  retryFailedRunItems(runId: string) {
+    return this.runCommandService.retryFailedRunItems(runId);
+  }
+
+  processRun(runId: string) {
+    return this.runExecutionService.processRun(runId);
   }
 
   downloadArtifact(artifactId: string) {
-    return this.taskQueryService.downloadArtifact(artifactId);
+    return this.runQueryService.downloadArtifact(artifactId);
   }
 
   previewArtifact(artifactId: string) {
-    return this.taskQueryService.previewArtifact(artifactId);
+    return this.runQueryService.previewArtifact(artifactId);
   }
 
-  downloadManifest(taskId: string) {
-    return this.taskQueryService.downloadManifest(taskId);
+  downloadManifest(runId: string) {
+    return this.runQueryService.downloadManifest(runId);
   }
 
-  downloadTaskArchive(taskId: string) {
-    return this.taskQueryService.downloadTaskArchive(taskId);
+  downloadRunArchive(runId: string) {
+    return this.runQueryService.downloadRunArchive(runId);
   }
 }

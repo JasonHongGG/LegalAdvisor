@@ -1,6 +1,6 @@
 import type { SourceRepository } from '../ports/repositories.js';
 import type { SourceHealthProbe } from '../ports/runtime.js';
-import type { TaskActivityService } from './taskActivityService.js';
+import type { RunActivityService } from './runActivityService.js';
 import { sourceRegistry } from '../../infrastructure/catalog/sourceRegistry.js';
 import { isoNow } from '../../utils.js';
 
@@ -8,7 +8,7 @@ export class SourceCatalogService {
   constructor(
     private readonly sourceRepository: SourceRepository,
     private readonly sourceHealthProbe: SourceHealthProbe,
-    private readonly taskActivityService: TaskActivityService,
+    private readonly runActivityService: RunActivityService,
   ) {}
 
   async bootstrap() {
@@ -30,7 +30,7 @@ export class SourceCatalogService {
           lastCheckedAt: isoNow(),
           lastErrorMessage: probeResult.lastErrorMessage,
         });
-        this.taskActivityService.publishSourceUpdated(source.id);
+        this.runActivityService.publishSourceUpdated(source.id);
       }),
     );
 

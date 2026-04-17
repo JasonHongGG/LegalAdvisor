@@ -2,8 +2,8 @@ import cors from 'cors';
 import express from 'express';
 import type { CrawlerApplicationFacade } from './application/services/crawlerApplicationFacade.js';
 import { errorHandler } from './presentation/http/middleware/errorHandler.js';
+import { createRunRouter } from './presentation/http/routes/runs.js';
 import { createSourceRouter } from './presentation/http/routes/sources.js';
-import { createTaskRouter } from './presentation/http/routes/tasks.js';
 import { createAttachmentDisposition } from './utils.js';
 
 export function createApp(application: CrawlerApplicationFacade) {
@@ -25,7 +25,7 @@ export function createApp(application: CrawlerApplicationFacade) {
   });
 
   app.use('/api/sources', createSourceRouter(application));
-  app.use('/api/tasks', createTaskRouter(application));
+  app.use('/api/runs', createRunRouter(application));
   app.get('/api/artifacts/:artifactId/download', async (request, response, next) => {
     try {
       const { artifact, buffer } = await application.downloadArtifact(request.params.artifactId);

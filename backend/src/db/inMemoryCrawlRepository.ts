@@ -1,15 +1,16 @@
 import type {
   ArtifactDto as CrawlArtifact,
-  TaskEventDto as CrawlEvent,
-  TaskManifestDto as CrawlManifest,
+  RunEventDto as CrawlEvent,
+  RunManifestDto as CrawlManifest,
   SourceOverviewDto as CrawlSourceRecord,
-  TaskDetailDto as CrawlTaskDetail,
-  TaskSummaryDto as CrawlTaskSummary,
-  TaskTargetDto as CrawlTaskTarget,
+  RunDetailDto as CrawlTaskDetail,
+  RunSummaryDto as CrawlTaskSummary,
+  RunTargetDto as CrawlTaskTarget,
+  RunTimelineEntryDto as CrawlTimelineEntry,
   WorkItemDto as CrawlWorkItem,
-  CreateTaskRequestDto as CreateTaskRequest,
+  CreateRunRequestDto as CreateTaskRequest,
   SourceId,
-  TaskStatus,
+  RunStatus,
 } from '@legaladvisor/shared';
 import type {
   ArtifactContentRecord,
@@ -22,10 +23,10 @@ import type {
   EventRepository,
   InsertArtifactInput,
   InsertEventInput,
-  LinkedTaskArtifactInput,
+  LinkedRunArtifactInput,
   SourceHealthPatch,
   SourceRepository,
-  TaskRepository,
+  RunRepository,
 } from '../application/ports/repositories.js';
 import type { SourceCatalogEntry } from '../domain/sourceCatalog.js';
 import { createId } from '../utils.js';
@@ -51,16 +52,16 @@ type ArtifactContentState = ArtifactContentRecord & {
   createdAt: string;
 };
 
-type TaskArtifactLinkRecord = {
+type RunArtifactLinkRecord = {
   id: string;
-  taskId: string;
+  runId: string;
   workItemId: string | null;
   artifactId: string;
   contentStatus: CrawlArtifact['contentStatus'];
   createdAt: string;
 };
 
-type InternalTaskState = {
+type InternalRunState = {
   summary: CrawlTaskSummary;
   workItems: CrawlWorkItem[];
   events: CrawlEvent[];
@@ -78,7 +79,7 @@ type CanonicalLawVersionRecord = CanonicalLawVersionInput & {
   lastSeenAt: string;
 };
 
-const finalTaskStatuses = new Set<TaskStatus>(['completed', 'partial_success', 'failed', 'cancelled']);
+const finalRunStatuses = new Set<RunStatus>(['completed', 'partial_success', 'failed', 'cancelled']);
 
 const workItemPatchMap = {
   status: 'status',
@@ -104,18 +105,19 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-export class InMemoryCrawlRepository implements SourceRepository, TaskRepository, ArtifactRepository, EventRepository {
+export class InMemoryCrawlRepository implements SourceRepository, RunRepository, ArtifactRepository, EventRepository {
   private readonly sources = new Map<SourceId, CrawlSourceRecord>();
-  private readonly tasks = new Map<string, InternalTaskState>();
-  private readonly workItemToTask = new Map<string, string>();
+  private readonly runs = new Map<string, InternalRunState>();
+  private readonly workItemToRun = new Map<string, string>();
   private readonly artifactContents = new Map<string, ArtifactContentState>();
   private readonly artifactContentIdsByHash = new Map<string, string>();
   private readonly artifactDefinitions = new Map<string, ArtifactDefinitionRecord>();
-  private readonly taskArtifactLinks = new Map<string, TaskArtifactLinkRecord>();
+  private readonly runArtifactLinks = new Map<string, RunArtifactLinkRecord>();
   private readonly canonicalLawDocuments = new Map<string, CanonicalLawDocumentRecord>();
   private readonly canonicalLawDocumentKeys = new Map<string, string>();
   private readonly canonicalLawVersions = new Map<string, CanonicalLawVersionRecord>();
   private readonly canonicalLawVersionKeys = new Map<string, string>();
+  private nextEventSequenceNo = 1;
 
   async ensureSourceCatalog(catalog: SourceCatalogEntry[]) {
     for (const source of catalog) {
@@ -134,7 +136,7 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
         lastCheckedAt: existing?.lastCheckedAt ?? null,
         lastErrorMessage: existing?.lastErrorMessage ?? null,
         capabilities: clone(source.capabilities),
-        taskBuilderFields: clone(source.taskBuilderFields),
+        runBuilderFields: clone(source.runBuilderFields),
       });
     }
   }
@@ -150,13 +152,13 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     source.lastErrorMessage = patch.lastErrorMessage ?? null;
   }
 
-  async createTask(input: CreateTaskRequest) {
+  async createRun(input: CreateTaskRequest) {
     const source = this.requireSource(input.sourceId);
     const createdAt = nowIso();
-    const taskId = createId();
+    const runId = createId();
     const targets: CrawlTaskTarget[] = input.targets.map((target) => ({
       id: createId(),
-      taskId,
+      runId: runId,
       targetKind: target.kind,
       label: target.label,
       config: clone(target),
@@ -164,8 +166,8 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     }));
     const workItems: CrawlWorkItem[] = targets.map((target, index) => ({
       id: createId(),
-      taskId,
-      taskTargetId: target.id,
+      runId: runId,
+      runTargetId: target.id,
       sequenceNo: index + 1,
       label: target.label,
       status: 'pending',
@@ -187,7 +189,7 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     }));
 
     const summary: CrawlTaskSummary = {
-      id: taskId,
+      id: runId,
       sourceId: input.sourceId,
       sourceName: source.name,
       status: 'queued',
@@ -209,52 +211,57 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
       targets,
     };
 
-    this.tasks.set(taskId, {
+    this.runs.set(runId, {
       summary,
       workItems,
       events: [],
     });
 
     for (const workItem of workItems) {
-      this.workItemToTask.set(workItem.id, taskId);
+      this.workItemToRun.set(workItem.id, runId);
     }
 
     await this.appendEvent({
       id: createId(),
-      taskId,
+      runId: runId,
       workItemId: null,
-      eventType: 'task-created',
+      eventType: 'run-created',
       level: 'info',
       message: '任務已建立，等待排入佇列。',
       details: { sourceId: input.sourceId },
       occurredAt: createdAt,
     });
 
-    return taskId;
+    return runId;
   }
 
-  async listTaskSummaries(): Promise<CrawlTaskSummary[]> {
-    return [...this.tasks.values()]
+  async listRunSummaries(): Promise<CrawlTaskSummary[]> {
+    return [...this.runs.values()]
       .map((state) => clone(state.summary))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
-  async getTaskDetail(taskId: string): Promise<CrawlTaskDetail | null> {
-    const state = this.tasks.get(taskId);
+  async getRunSummary(runId: string): Promise<CrawlTaskSummary | null> {
+    const state = this.runs.get(runId);
+    return state ? clone(state.summary) : null;
+  }
+
+  async getRunDetail(runId: string): Promise<CrawlTaskDetail | null> {
+    const state = this.runs.get(runId);
     if (!state) {
       return null;
     }
 
     const summary = clone(state.summary);
-    const artifacts = this.listTaskArtifacts(taskId);
-    const events = state.events.slice(0, 200).map((event) => clone(event));
+    const artifacts = await this.listRunArtifacts(runId);
+    const events = await this.listRunEvents(runId, { limit: 500 });
     const workItems = state.workItems
       .slice()
       .sort((left, right) => left.sequenceNo - right.sequenceNo)
       .map((workItem) => ({
         ...clone(workItem),
         artifacts: artifacts.filter((artifact) => artifact.workItemId === workItem.id),
-        recentEvents: state.events.filter((event) => event.workItemId === workItem.id).slice(0, 50).map((event) => clone(event)),
+        recentEvents: events.filter((event) => event.workItemId === workItem.id).slice(-50).map((event) => clone(event)),
       }));
 
     return {
@@ -266,31 +273,31 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     };
   }
 
-  async getTaskStatus(taskId: string): Promise<TaskStatus | null> {
-    return this.tasks.get(taskId)?.summary.status ?? null;
+  async getRunStatus(runId: string): Promise<RunStatus | null> {
+    return this.runs.get(runId)?.summary.status ?? null;
   }
 
-  async deleteTask(taskId: string) {
-    const state = this.requireTaskState(taskId);
+  async deleteRun(runId: string) {
+    const state = this.requireRunState(runId);
 
     for (const workItem of state.workItems) {
-      this.workItemToTask.delete(workItem.id);
+      this.workItemToRun.delete(workItem.id);
     }
 
-    for (const [linkId, link] of this.taskArtifactLinks.entries()) {
-      if (link.taskId !== taskId) {
+    for (const [linkId, link] of this.runArtifactLinks.entries()) {
+      if (link.runId !== runId) {
         continue;
       }
 
-      this.taskArtifactLinks.delete(linkId);
+      this.runArtifactLinks.delete(linkId);
       this.cleanupArtifactDefinition(link.artifactId);
     }
 
-    this.tasks.delete(taskId);
+    this.runs.delete(runId);
   }
 
-  async setTaskStatus(taskId: string, status: TaskStatus, summary?: string) {
-    const state = this.requireTaskState(taskId);
+  async setRunStatus(runId: string, status: RunStatus, summary?: string) {
+    const state = this.requireRunState(runId);
     const timestamp = nowIso();
     state.summary.status = status;
     if (summary) {
@@ -299,7 +306,7 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     if (status === 'running' && !state.summary.startedAt) {
       state.summary.startedAt = timestamp;
     }
-    if (finalTaskStatuses.has(status)) {
+    if (finalRunStatuses.has(status)) {
       state.summary.finishedAt = timestamp;
     } else {
       state.summary.finishedAt = null;
@@ -332,8 +339,8 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     state.summary.updatedAt = timestamp;
   }
 
-  async resetFailedWorkItems(taskId: string) {
-    const state = this.requireTaskState(taskId);
+  async resetFailedRunItems(runId: string) {
+    const state = this.requireRunState(runId);
     const timestamp = nowIso();
     for (const workItem of state.workItems) {
       if (workItem.status !== 'failed') {
@@ -349,8 +356,8 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     state.summary.updatedAt = timestamp;
   }
 
-  async recomputeTaskStats(taskId: string) {
-    const state = this.requireTaskState(taskId);
+  async recomputeRunStats(runId: string) {
+    const state = this.requireRunState(runId);
     const total = state.workItems.length;
     const completed = state.workItems.filter((item) => item.status === 'done').length;
     const failed = state.workItems.filter((item) => item.status === 'failed').length;
@@ -388,7 +395,7 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     state.summary.warningCount = warningCount;
     state.summary.errorCount = errorCount;
     state.summary.updatedAt = nowIso();
-    if (finalTaskStatuses.has(nextStatus)) {
+    if (finalRunStatuses.has(nextStatus)) {
       state.summary.finishedAt = state.summary.finishedAt ?? state.summary.updatedAt;
     } else {
       state.summary.finishedAt = null;
@@ -396,20 +403,41 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
   }
 
   async appendEvent(input: InsertEventInput) {
-    const state = this.requireTaskState(input.taskId);
+    const state = this.requireRunState(input.runId);
     const occurredAt = input.occurredAt ?? nowIso();
-    state.events.unshift({
+    const event = {
       id: input.id,
-      taskId: input.taskId,
+      runId: input.runId,
       workItemId: input.workItemId,
+      sequenceNo: this.nextEventSequenceNo,
       eventType: input.eventType,
       level: input.level,
       message: input.message,
       details: clone(input.details),
       occurredAt,
-    });
+    } satisfies CrawlEvent;
+    this.nextEventSequenceNo += 1;
+    state.events.push(event);
     state.summary.lastEventAt = occurredAt;
     state.summary.updatedAt = occurredAt;
+    return clone(event);
+  }
+
+  async listRunEvents(runId: string, options?: { afterSequenceNo?: number; limit?: number }) {
+    const state = this.requireRunState(runId);
+    const afterSequenceNo = options?.afterSequenceNo ?? 0;
+    const limit = options?.limit ?? 500;
+    return state.events
+      .filter((event) => event.sequenceNo > afterSequenceNo)
+      .slice(-limit)
+      .map((event) => clone(event));
+  }
+
+  async listRunTimelineEntries(runId: string, options?: { afterSequenceNo?: number; limit?: number }) {
+    const events = await this.listRunEvents(runId, options);
+    return events
+      .filter((event) => event.eventType !== 'log')
+      .map((event) => this.mapTimelineEntry(event));
   }
 
   async ensureArtifactContent(input: EnsureArtifactContentInput) {
@@ -472,21 +500,21 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     };
     this.artifactDefinitions.set(artifactRecord.id, artifactRecord);
 
-    const link: TaskArtifactLinkRecord = {
+    const link: RunArtifactLinkRecord = {
       id: input.id,
-      taskId: input.taskId,
+      runId: input.runId,
       workItemId: input.workItemId,
       artifactId: artifactRecord.id,
       contentStatus: input.contentStatus,
       createdAt: input.createdAt ?? nowIso(),
     };
-    this.taskArtifactLinks.set(link.id, link);
-    this.requireTaskState(input.taskId).summary.updatedAt = link.createdAt;
+    this.runArtifactLinks.set(link.id, link);
+    this.requireRunState(input.runId).summary.updatedAt = link.createdAt;
     return this.mapLinkedArtifact(link, artifactRecord);
   }
 
   async getArtifact(artifactId: string) {
-    const link = this.taskArtifactLinks.get(artifactId);
+    const link = this.runArtifactLinks.get(artifactId);
     if (link) {
       const artifact = this.artifactDefinitions.get(link.artifactId);
       if (!artifact) {
@@ -504,13 +532,17 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
   }
 
   async getArtifactContent(artifactId: string) {
-    const link = this.taskArtifactLinks.get(artifactId);
+    const link = this.runArtifactLinks.get(artifactId);
     const artifactDefinition = link ? this.artifactDefinitions.get(link.artifactId) : this.artifactDefinitions.get(artifactId);
     if (!artifactDefinition) {
       return null;
     }
     const content = this.artifactContents.get(artifactDefinition.contentId);
     return content ? Buffer.from(content.buffer) : null;
+  }
+
+  async listRunArtifacts(runId: string) {
+    return this.listRunArtifactsInternal(runId);
   }
 
   async ensureCanonicalLawDocument(input: CanonicalLawDocumentInput) {
@@ -613,30 +645,30 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     return this.mapCanonicalArtifact(artifact);
   }
 
-  async linkTaskArtifact(input: LinkedTaskArtifactInput) {
+  async linkRunArtifact(input: LinkedRunArtifactInput) {
     const canonicalArtifact = this.artifactDefinitions.get(input.canonicalArtifactId);
     if (!canonicalArtifact) {
       throw new Error(`Canonical artifact ${input.canonicalArtifactId} not found.`);
     }
 
-    const existing = [...this.taskArtifactLinks.values()].find(
-      (link) => link.taskId === input.taskId && link.workItemId === input.workItemId && link.artifactId === input.canonicalArtifactId,
+    const existing = [...this.runArtifactLinks.values()].find(
+      (link) => link.runId === input.runId && link.workItemId === input.workItemId && link.artifactId === input.canonicalArtifactId,
     );
     if (existing) {
       existing.contentStatus = input.contentStatus;
       return this.mapLinkedArtifact(existing, canonicalArtifact);
     }
 
-    const link: TaskArtifactLinkRecord = {
+    const link: RunArtifactLinkRecord = {
       id: input.id ?? createId(),
-      taskId: input.taskId,
+      runId: input.runId,
       workItemId: input.workItemId,
       artifactId: input.canonicalArtifactId,
       contentStatus: input.contentStatus,
       createdAt: input.createdAt ?? nowIso(),
     };
-    this.taskArtifactLinks.set(link.id, link);
-    this.requireTaskState(input.taskId).summary.updatedAt = link.createdAt;
+    this.runArtifactLinks.set(link.id, link);
+    this.requireRunState(input.runId).summary.updatedAt = link.createdAt;
     return this.mapLinkedArtifact(link, canonicalArtifact);
   }
 
@@ -653,10 +685,10 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     return source;
   }
 
-  private requireTaskState(taskId: string) {
-    const state = this.tasks.get(taskId);
+  private requireRunState(runId: string) {
+    const state = this.runs.get(runId);
     if (!state) {
-      throw new Error(`Task ${taskId} not found`);
+      throw new Error(`Run ${runId} not found`);
     }
     return state;
   }
@@ -667,7 +699,7 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
       return;
     }
 
-    const isStillLinked = [...this.taskArtifactLinks.values()].some((link) => link.artifactId === artifactId);
+    const isStillLinked = [...this.runArtifactLinks.values()].some((link) => link.artifactId === artifactId);
     if (isStillLinked || artifact.canonicalVersionId || artifact.canonicalDocumentId) {
       return;
     }
@@ -692,11 +724,11 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
   }
 
   private requireWorkItem(workItemId: string) {
-    const taskId = this.workItemToTask.get(workItemId);
-    if (!taskId) {
+    const runId = this.workItemToRun.get(workItemId);
+    if (!runId) {
       throw new Error(`Work item ${workItemId} not found`);
     }
-    const state = this.requireTaskState(taskId);
+    const state = this.requireRunState(runId);
     const workItem = state.workItems.find((entry) => entry.id === workItemId);
     if (!workItem) {
       throw new Error(`Work item ${workItemId} not found`);
@@ -704,9 +736,9 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
     return { state, workItem };
   }
 
-  private listTaskArtifacts(taskId: string) {
-    return [...this.taskArtifactLinks.values()]
-      .filter((link) => link.taskId === taskId)
+  private listRunArtifactsInternal(runId: string) {
+    return [...this.runArtifactLinks.values()]
+      .filter((link) => link.runId === runId)
       .map((link) => {
         const artifact = this.artifactDefinitions.get(link.artifactId);
         if (!artifact) {
@@ -717,10 +749,52 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
-  private mapLinkedArtifact(link: TaskArtifactLinkRecord, artifact: ArtifactDefinitionRecord): CrawlArtifact {
+  private mapTimelineEntry(event: CrawlEvent): CrawlTimelineEntry {
+    const status = typeof event.details.status === 'string' ? event.details.status : null;
+    const label = typeof event.details.label === 'string' ? event.details.label : null;
+    const itemsProcessed = typeof event.details.itemsProcessed === 'number' ? event.details.itemsProcessed : null;
+    const itemsTotal = typeof event.details.itemsTotal === 'number' ? event.details.itemsTotal : null;
+
+    let stateTone: CrawlTimelineEntry['stateTone'] = 'done';
+    let stateLabel = '完成';
+    if (status === 'failed' || event.level === 'error') {
+      stateTone = 'failed';
+      stateLabel = '失敗';
+    } else if (status === 'cancelled') {
+      stateTone = 'cancelled';
+      stateLabel = '已取消';
+    } else if (status && !['done', 'completed', 'partial_success', 'failed', 'cancelled', 'skipped'].includes(status)) {
+      stateTone = 'running';
+      stateLabel = '進行中';
+    } else if (event.eventType === 'work-item-progress') {
+      stateTone = 'running';
+      stateLabel = '進行中';
+    }
+
+    const progressSuffix = itemsProcessed !== null && itemsTotal !== null && itemsTotal > 0
+      ? `（${itemsProcessed}/${itemsTotal}）`
+      : '';
+
+    return {
+      id: event.id,
+      runId: event.runId,
+      workItemId: event.workItemId,
+      sequenceNo: event.sequenceNo,
+      eventType: event.eventType,
+      level: event.level,
+      title: event.eventType === 'work-item-progress' ? `${event.message}${progressSuffix}` : event.message,
+      context: label ? `項目：${label}` : '主任務',
+      stateLabel,
+      stateTone,
+      occurredAt: event.occurredAt,
+      endedAt: ['done', 'completed', 'partial_success', 'failed', 'cancelled', 'skipped'].includes(status ?? '') ? event.occurredAt : null,
+    };
+  }
+
+  private mapLinkedArtifact(link: RunArtifactLinkRecord, artifact: ArtifactDefinitionRecord): CrawlArtifact {
     return {
       id: link.id,
-      taskId: link.taskId,
+      runId: link.runId,
       workItemId: link.workItemId,
       artifactKind: artifact.artifactKind,
       artifactRole: artifact.artifactRole,
@@ -746,7 +820,7 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
   private mapCanonicalArtifact(artifact: ArtifactDefinitionRecord): CrawlArtifact {
     return {
       id: artifact.id,
-      taskId: `canonical:${artifact.canonicalVersionId ?? 'unknown'}`,
+      runId: `canonical:${artifact.canonicalVersionId ?? 'unknown'}`,
       workItemId: null,
       artifactKind: artifact.artifactKind,
       artifactRole: artifact.artifactRole,
@@ -776,7 +850,7 @@ export class InMemoryCrawlRepository implements SourceRepository, TaskRepository
 
     return {
       schemaVersion: '1.0.0',
-      taskId: summary.id,
+      runId: summary.id,
       sourceId: summary.sourceId,
       sourceName: summary.sourceName,
       generatedAt: nowIso(),

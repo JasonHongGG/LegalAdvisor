@@ -12,7 +12,7 @@ function App() {
           <Route path="/" element={<Navigate to="/scraping" replace />} />
           <Route path="/scraping">
             <Route index element={<ScrapingDashboard />} />
-            <Route path=":taskId" element={<ScrapingDashboard />} />
+            <Route path=":runId" element={<ScrapingDashboard />} />
           </Route>
           <Route path="/rag-processing" element={<RagProcessingPage />} />
           <Route path="/legal-chat" element={<LegalChatPage />} />

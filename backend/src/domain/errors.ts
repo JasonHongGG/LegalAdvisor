@@ -51,9 +51,67 @@ export class AdapterRateLimitError extends AdapterExecutionError {
   }
 }
 
+type ErrorLike = Error & {
+  code?: string;
+  detail?: string | null;
+  constraint?: string | null;
+};
+
+function translateInfrastructureError(error: ErrorLike) {
+  const message = error.message ?? '';
+
+  if (
+    error.code === '42P10'
+    || message.includes('there is no unique or exclusion constraint matching the ON CONFLICT specification')
+  ) {
+    return '法規資料寫入失敗，系統資料表唯一鍵設定不一致。';
+  }
+
+  if (error.code === '23505') {
+    return '資料寫入時發生重複鍵衝突，系統會以既有資料為準。';
+  }
+
+  if (error.code === 'ECONNREFUSED' || message.includes('connect ECONNREFUSED')) {
+    return '系統目前無法連線到所需服務，請稍後再試。';
+  }
+
+  if (message.includes('timeout') || message.includes('timed out')) {
+    return '系統處理逾時，請稍後再試。';
+  }
+
+  return null;
+}
+
 export function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
-    return error.message;
+    return translateInfrastructureError(error as ErrorLike) ?? error.message;
   }
   return 'Unknown error';
+}
+
+export function toErrorResponsePayload(error: unknown) {
+  if (error instanceof AppError) {
+    return {
+      statusCode: error.statusCode,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      statusCode: 500,
+      code: 'internal_error',
+      message: translateInfrastructureError(error as ErrorLike) ?? error.message,
+      details: null,
+    };
+  }
+
+  return {
+    statusCode: 500,
+    code: 'internal_error',
+    message: 'Unknown server error',
+    details: null,
+  };
 }

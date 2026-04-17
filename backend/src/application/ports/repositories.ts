@@ -1,13 +1,14 @@
 import type {
   ArtifactDto,
   ArtifactContentStatus,
-  CreateTaskRequestDto,
+  CreateRunRequestDto,
   SourceId,
   SourceOverviewDto,
-  TaskDetailDto,
-  TaskEventDto,
-  TaskSummaryDto,
-  TaskStatus,
+  RunDetailDto,
+  RunEventDto,
+  RunTimelineEntryDto,
+  RunSummaryDto,
+  RunStatus,
 } from '@legaladvisor/shared';
 import type { SourceCatalogEntry } from '../../domain/sourceCatalog.js';
 
@@ -17,7 +18,7 @@ export type SourceHealthPatch = {
   lastErrorMessage?: string | null;
 };
 
-export type InsertEventInput = Omit<TaskEventDto, 'occurredAt'> & { occurredAt?: string };
+export type InsertEventInput = Omit<RunEventDto, 'occurredAt' | 'sequenceNo'> & { occurredAt?: string };
 
 export type EnsureArtifactContentInput = {
   hashSha256: string;
@@ -38,7 +39,7 @@ export type ArtifactContentRecord = {
 
 export type InsertArtifactInput = {
   id: string;
-  taskId: string;
+  runId: string;
   workItemId: string | null;
   artifactKind: ArtifactDto['artifactKind'];
   artifactRole: ArtifactDto['artifactRole'];
@@ -91,9 +92,9 @@ export type CanonicalArtifactInput = {
   createdAt?: string;
 };
 
-export type LinkedTaskArtifactInput = {
+export type LinkedRunArtifactInput = {
   id?: string;
-  taskId: string;
+  runId: string;
   workItemId: string | null;
   lawDocumentId: string;
   lawVersionId: string;
@@ -132,30 +133,34 @@ export interface SourceRepository {
   updateSourceHealth(sourceId: SourceId, patch: SourceHealthPatch): Promise<void>;
 }
 
-export interface TaskRepository {
-  createTask(input: CreateTaskRequestDto): Promise<string>;
-  listTaskSummaries(): Promise<TaskSummaryDto[]>;
-  getTaskDetail(taskId: string): Promise<TaskDetailDto | null>;
-  getTaskStatus(taskId: string): Promise<TaskStatus | null>;
-  deleteTask(taskId: string): Promise<void>;
-  setTaskStatus(taskId: string, status: TaskStatus, summary?: string): Promise<void>;
+export interface RunRepository {
+  createRun(input: CreateRunRequestDto): Promise<string>;
+  listRunSummaries(): Promise<RunSummaryDto[]>;
+  getRunDetail(runId: string): Promise<RunDetailDto | null>;
+  getRunSummary(runId: string): Promise<RunSummaryDto | null>;
+  getRunStatus(runId: string): Promise<RunStatus | null>;
+  deleteRun(runId: string): Promise<void>;
+  setRunStatus(runId: string, status: RunStatus, summary?: string): Promise<void>;
   updateWorkItem(workItemId: string, patch: WorkItemPatch): Promise<void>;
-  resetFailedWorkItems(taskId: string): Promise<void>;
-  recomputeTaskStats(taskId: string): Promise<void>;
+  resetFailedRunItems(runId: string): Promise<void>;
+  recomputeRunStats(runId: string): Promise<void>;
 }
 
 export interface ArtifactRepository {
   ensureArtifactContent(input: EnsureArtifactContentInput): Promise<ArtifactContentRecord>;
   insertArtifact(input: InsertArtifactInput): Promise<ArtifactDto>;
   getArtifact(artifactId: string): Promise<ArtifactDto | null>;
+  listRunArtifacts(runId: string): Promise<ArtifactDto[]>;
   getArtifactContent(artifactId: string): Promise<Buffer | null>;
   ensureCanonicalLawDocument(input: CanonicalLawDocumentInput): Promise<string>;
   findCanonicalLawVersion(sourceId: SourceId, normalizedLawName: string, versionFingerprint: string): Promise<CanonicalLawVersionMatch | null>;
   createCanonicalLawVersion(input: CanonicalLawVersionInput): Promise<string>;
   insertCanonicalArtifact(input: CanonicalArtifactInput): Promise<ArtifactDto>;
-  linkTaskArtifact(input: LinkedTaskArtifactInput): Promise<ArtifactDto>;
+  linkRunArtifact(input: LinkedRunArtifactInput): Promise<ArtifactDto>;
 }
 
 export interface EventRepository {
-  appendEvent(input: InsertEventInput): Promise<void>;
+  appendEvent(input: InsertEventInput): Promise<RunEventDto>;
+  listRunEvents(runId: string, options?: { afterSequenceNo?: number; limit?: number }): Promise<RunEventDto[]>;
+  listRunTimelineEntries(runId: string, options?: { afterSequenceNo?: number; limit?: number }): Promise<RunTimelineEntryDto[]>;
 }

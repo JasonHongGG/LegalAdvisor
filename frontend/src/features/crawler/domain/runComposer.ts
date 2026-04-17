@@ -1,4 +1,4 @@
-import type { SourceId, SourceOverviewDto, TaskTargetConfig } from '@legaladvisor/shared';
+import type { SourceId, SourceOverviewDto, RunTargetConfig } from '@legaladvisor/shared';
 import type { FieldValue } from './types';
 
 export function buildInitialFormValues(source: SourceOverviewDto | null) {
@@ -7,11 +7,11 @@ export function buildInitialFormValues(source: SourceOverviewDto | null) {
   }
 
   return Object.fromEntries(
-    source.taskBuilderFields.map((field) => [field.name, field.type === 'checkbox' ? false : '']),
+    source.runBuilderFields.map((field) => [field.name, field.type === 'checkbox' ? false : '']),
   );
 }
 
-export function buildTaskTarget(sourceId: SourceId, values: Record<string, FieldValue>): TaskTargetConfig {
+export function buildRunTarget(sourceId: SourceId, values: Record<string, FieldValue>): RunTargetConfig {
   if (sourceId === 'moj-laws') {
     return {
       kind: 'law',

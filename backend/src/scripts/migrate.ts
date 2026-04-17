@@ -8,6 +8,34 @@ import { createId, sha256 } from '../utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const currentExecutionCoreRelations = [
+  'crawl_sources',
+  'crawl_runs',
+  'crawl_run_targets',
+  'crawl_work_items',
+  'crawl_events',
+  'canonical_law_documents',
+  'canonical_law_versions',
+  'artifact_contents',
+  'artifacts',
+  'crawl_run_artifact_links',
+] as const;
+const runSchemaCutoverRelations = [
+  'crawl_tasks',
+  'crawl_task_targets',
+  'crawl_task_artifact_links',
+] as const;
+const incompatibleLegacyExecutionCoreRelations = [
+  'source_definitions',
+  'crawl_jobs',
+  'crawl_targets',
+  'run_units',
+  'run_events',
+  'blob_contents',
+  'artifact_definitions',
+  'run_output_links',
+  'canonical_artifact_links',
+] as const;
 const supportedArtifactKinds = new Set([
   'law_source_snapshot',
   'law_document_snapshot',
@@ -50,13 +78,9 @@ async function main() {
   const sqlDir = path.resolve(__dirname, '../../sql');
   const files = (await fs.readdir(sqlDir)).filter((file) => file.endsWith('.sql')).sort();
 
-  await pool.query(`create schema if not exists ${migrationSchema}`);
-  await pool.query(`
-    create table if not exists ${migrationSchema}.schema_migrations (
-      file_name text primary key,
-      applied_at timestamptz not null default now()
-    )
-  `);
+  await ensureSchemaMigrationsTable(pool, migrationSchema);
+
+  await repairSchemaDriftIfNeeded(pool, migrationSchema, files);
 
   for (const file of files) {
     const alreadyApplied = await pool.query(
@@ -89,15 +113,81 @@ async function main() {
   await pool.end();
 }
 
+async function repairSchemaDriftIfNeeded(pool: Pool, schema: string, filesOnDisk: string[]) {
+  const [appliedResult, existingRelations] = await Promise.all([
+    pool.query(`select file_name from ${schema}.schema_migrations order by file_name`),
+    listExistingRelations(pool, schema, [
+      ...currentExecutionCoreRelations,
+      ...runSchemaCutoverRelations,
+      ...incompatibleLegacyExecutionCoreRelations,
+    ]),
+  ]);
+
+  if (!appliedResult.rowCount) {
+    return;
+  }
+
+  const existingRelationSet = new Set(existingRelations);
+  const missingCurrentRelations = currentExecutionCoreRelations.filter((relation) => !existingRelationSet.has(relation));
+  if (missingCurrentRelations.length === 0) {
+    return;
+  }
+
+  const hasRunSchemaCutover = runSchemaCutoverRelations.some((relation) => existingRelationSet.has(relation));
+  if (hasRunSchemaCutover) {
+    return;
+  }
+
+  const appliedFileNames = appliedResult.rows.map((row) => String(row.file_name));
+  const staleFileNames = appliedFileNames.filter((fileName) => !filesOnDisk.includes(fileName));
+  const hasIncompatibleLegacyExecutionCore = incompatibleLegacyExecutionCoreRelations.some((relation) => existingRelationSet.has(relation));
+
+  if (existingRelations.length === 0 || hasIncompatibleLegacyExecutionCore) {
+    console.warn(
+      hasIncompatibleLegacyExecutionCore
+        ? `Detected incompatible legacy execution-core tables in schema "${schema}". Resetting the schema and replaying all current workspace migrations.`
+        : `Detected stale migration history in schema "${schema}": schema_migrations has entries but none of the core tables exist. Resetting migration history and replaying all workspace migrations.`,
+    );
+    if (staleFileNames.length > 0) {
+      console.warn(`Removing stale migration records not present on disk: ${staleFileNames.join(', ')}`);
+    }
+    await pool.query(`drop schema if exists ${schema} cascade`);
+    await ensureSchemaMigrationsTable(pool, schema);
+    return;
+  }
+
+  throw new Error(
+    `Schema drift detected in ${schema}: missing required tables ${missingCurrentRelations.join(', ')} while migration history already exists. ` +
+      `Please back up the database, clear ${schema}.schema_migrations manually, and rerun npm run db:migrate.`,
+  );
+}
+
+async function ensureSchemaMigrationsTable(pool: Pool, schema: string) {
+  await pool.query(`create schema if not exists ${schema}`);
+  await pool.query(`
+    create table if not exists ${schema}.schema_migrations (
+      file_name text primary key,
+      applied_at timestamptz not null default now()
+    )
+  `);
+}
+
 async function backfillLegacyArtifacts(pool: Pool, schema: string, legacyArtifactRoot: string) {
-  const [hasLegacyTaskArtifacts, hasLegacyCanonicalArtifacts, hasLegacyTaskRefs, hasNewArtifactTables] = await Promise.all([
+  const [hasLegacyTaskArtifacts, hasLegacyCanonicalArtifacts, hasLegacyRunArtifactRefs, hasLegacyTaskArtifactRefs, hasNewArtifactTables] = await Promise.all([
     tableExists(pool, schema, 'crawl_artifacts'),
     tableExists(pool, schema, 'canonical_law_version_artifacts'),
+    tableExists(pool, schema, 'crawl_run_artifact_refs'),
     tableExists(pool, schema, 'crawl_task_artifact_refs'),
     tableExists(pool, schema, 'artifacts'),
   ]);
 
-  if (!hasNewArtifactTables || (!hasLegacyTaskArtifacts && !hasLegacyCanonicalArtifacts && !hasLegacyTaskRefs)) {
+  const legacyArtifactRefsTableName = hasLegacyRunArtifactRefs
+    ? 'crawl_run_artifact_refs'
+    : hasLegacyTaskArtifactRefs
+      ? 'crawl_task_artifact_refs'
+      : null;
+
+  if (!hasNewArtifactTables || (!hasLegacyTaskArtifacts && !hasLegacyCanonicalArtifacts && !legacyArtifactRefsTableName)) {
     return;
   }
 
@@ -113,6 +203,10 @@ async function backfillLegacyArtifacts(pool: Pool, schema: string, legacyArtifac
         }
         const metadata = parseJson<Record<string, unknown>>(row.metadata, {});
         const buffer = await readLegacyArtifactBuffer(legacyArtifactRoot, String(row.storage_path));
+        const legacyRunId = readOptionalString(row.run_id) ?? readOptionalString(row.task_id);
+        if (!legacyRunId) {
+          throw new Error(`Legacy crawl_artifacts row ${String(row.id)} is missing run_id/task_id.`);
+        }
         const contentId = await ensureArtifactContent(client, schema, {
           hashSha256: sha256(buffer),
           contentType: String(row.content_type),
@@ -144,7 +238,7 @@ async function backfillLegacyArtifacts(pool: Pool, schema: string, legacyArtifac
             JSON.stringify({
               ...metadata,
               artifactRole: inferArtifactRole(metadata, String(row.artifact_kind)),
-              contentStatus: 'task-only',
+              contentStatus: 'run-only',
               canonicalDocumentId: readOptionalString(metadata.canonicalDocumentId),
               canonicalVersionId: readOptionalString(metadata.canonicalVersionId),
             }),
@@ -154,11 +248,11 @@ async function backfillLegacyArtifacts(pool: Pool, schema: string, legacyArtifac
 
         await client.query(
           `
-            insert into ${schema}.crawl_task_artifact_links (id, task_id, work_item_id, artifact_id, content_status, created_at)
+            insert into ${schema}.crawl_run_artifact_links (id, run_id, work_item_id, artifact_id, content_status, created_at)
             values ($1, $2, $3, $4, $5, $6)
             on conflict (id) do nothing
           `,
-          [String(row.id), String(row.task_id), row.work_item_id ? String(row.work_item_id) : null, String(row.id), 'task-only', row.created_at],
+          [String(row.id), legacyRunId, row.work_item_id ? String(row.work_item_id) : null, String(row.id), 'run-only', row.created_at],
         );
       }
     }
@@ -212,18 +306,22 @@ async function backfillLegacyArtifacts(pool: Pool, schema: string, legacyArtifac
       }
     }
 
-    if (hasLegacyTaskRefs) {
-      const result = await client.query(`select * from ${schema}.crawl_task_artifact_refs order by created_at asc`);
+    if (legacyArtifactRefsTableName) {
+      const result = await client.query(`select * from ${schema}.${legacyArtifactRefsTableName} order by created_at asc`);
       for (const row of result.rows) {
+        const legacyRunId = readOptionalString(row.run_id) ?? readOptionalString(row.task_id);
+        if (!legacyRunId) {
+          throw new Error(`Legacy artifact ref row ${String(row.id)} is missing run_id/task_id.`);
+        }
         await client.query(
           `
-            insert into ${schema}.crawl_task_artifact_links (id, task_id, work_item_id, artifact_id, content_status, created_at)
+            insert into ${schema}.crawl_run_artifact_links (id, run_id, work_item_id, artifact_id, content_status, created_at)
             values ($1, $2, $3, $4, $5, $6)
             on conflict (id) do nothing
           `,
           [
             String(row.id),
-            String(row.task_id),
+            legacyRunId,
             row.work_item_id ? String(row.work_item_id) : null,
             String(row.canonical_artifact_id),
             String(row.content_status),
@@ -233,6 +331,7 @@ async function backfillLegacyArtifacts(pool: Pool, schema: string, legacyArtifac
       }
     }
 
+  await client.query(`drop table if exists ${schema}.crawl_run_artifact_refs`);
     await client.query(`drop table if exists ${schema}.crawl_task_artifact_refs`);
     await client.query(`drop table if exists ${schema}.canonical_law_version_artifacts`);
     await client.query(`drop table if exists ${schema}.crawl_artifacts`);
@@ -249,6 +348,22 @@ async function backfillLegacyArtifacts(pool: Pool, schema: string, legacyArtifac
 async function tableExists(pool: Pool, schema: string, tableName: string) {
   const result = await pool.query(`select to_regclass($1) as regclass_name`, [`${schema}.${tableName}`]);
   return Boolean(result.rows[0]?.regclass_name);
+}
+
+async function listExistingRelations(pool: Pool, schema: string, tableNames: readonly string[]) {
+  const result = await pool.query(
+    `
+      select c.relname
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = $1
+        and c.relname = any($2::text[])
+      order by c.relname asc
+    `,
+    [schema, tableNames],
+  );
+
+  return result.rows.map((row) => String(row.relname));
 }
 
 async function ensureArtifactContent(

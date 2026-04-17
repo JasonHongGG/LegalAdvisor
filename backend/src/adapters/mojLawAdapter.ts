@@ -75,13 +75,10 @@ export class MojLawAdapter implements SourceAdapter {
 
   async run(context: AdapterContext) {
     const target = context.target as LawTargetConfig;
-    await context.updateWorkItem({
-      status: 'fetching_index',
+    await context.beginStage('fetching_index', {
       progress: 5,
-      currentStage: 'fetching_index',
-      lastMessage: '下載法規資料總檔中',
+      message: '下載法規資料總檔中',
       sourceLocator: 'https://law.moj.gov.tw/api/ch/law/json',
-      startedAt: new Date().toISOString(),
     });
     await context.emit('info', 'work-item-status', '開始下載法規資料總檔。', { query: target.query });
 
@@ -95,11 +92,9 @@ export class MojLawAdapter implements SourceAdapter {
       throw new Error('法規總檔缺少 ChLaw.json。');
     }
 
-    await context.updateWorkItem({
-      status: 'parsing',
+    await context.beginStage('parsing', {
       progress: 25,
-      currentStage: 'parsing',
-      lastMessage: '解析法規資料中',
+      message: '解析法規資料中',
     });
 
     const archive = parseJsonText<MojArchive>(zip.readAsText(jsonEntry, 'utf-8'));
@@ -108,20 +103,16 @@ export class MojLawAdapter implements SourceAdapter {
       throw new Error(`找不到符合「${target.query}」的法規。`);
     }
 
-    await context.updateWorkItem({
-      status: 'normalizing',
+    await context.beginStage('normalizing', {
       progress: 45,
-      currentStage: 'normalizing',
-      lastMessage: `找到 ${matchedLaws.length} 部法規，整理資料中`,
+      message: `找到 ${matchedLaws.length} 部法規，整理資料中`,
       itemsTotal: matchedLaws.length,
       itemsProcessed: 0,
     });
 
-    await context.updateWorkItem({
-      status: 'writing_output',
+    await context.beginStage('writing_output', {
       progress: 55,
-      currentStage: 'writing_output',
-      lastMessage: `開始輸出 ${matchedLaws.length} 部法規快照`,
+      message: `開始輸出 ${matchedLaws.length} 部法規快照`,
       itemsTotal: matchedLaws.length,
       itemsProcessed: 0,
     });
@@ -151,11 +142,11 @@ export class MojLawAdapter implements SourceAdapter {
         histories: normalizeWhitespace(record.LawHistories || ''),
         documentMarkdown: renderLawMarkdown(record),
       });
-      await context.updateWorkItem({
+      await context.advance({
         progress: 45 + (processed / matchedLaws.length) * 45,
         itemsProcessed: processed,
         itemsTotal: matchedLaws.length,
-        lastMessage: contentResult.contentStatus === 'new' ? `已建立 ${record.LawName} 新版本` : `已重用 ${record.LawName} 既有版本`,
+        message: contentResult.contentStatus === 'new' ? `已建立 ${record.LawName} 新版本` : `已重用 ${record.LawName} 既有版本`,
         sourceLocator: record.LawURL,
         cursor: {
           query: target.query,
@@ -170,12 +161,10 @@ export class MojLawAdapter implements SourceAdapter {
       });
     }
 
-    await context.updateWorkItem({
-      status: 'done',
-      progress: 100,
-      currentStage: 'done',
-      lastMessage: `完成 ${matchedLaws.length} 部法規輸出`,
-      finishedAt: new Date().toISOString(),
+    await context.complete({
+      message: `完成 ${matchedLaws.length} 部法規輸出`,
+      itemsProcessed: matchedLaws.length,
+      itemsTotal: matchedLaws.length,
     });
   }
 }

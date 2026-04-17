@@ -5,6 +5,7 @@ export type TimelineStep = {
   title: string;
   context: string | null;
   workItemId: string | null;
+  sequenceNo: number;
   startedAtLabel: string;
   startedAtMs: number;
   durationLabel: string;

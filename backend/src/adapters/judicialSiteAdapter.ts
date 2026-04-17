@@ -68,15 +68,12 @@ export class JudicialSiteAdapter implements SourceAdapter {
     let currentUrl: string | null = target.startUrl;
     let page = 0;
 
-    await context.updateWorkItem({
-      status: 'fetching_index',
+    await context.beginStage('fetching_index', {
       progress: 5,
-      currentStage: 'fetching_index',
-      lastMessage: '開始抓取司法院列表頁',
+      message: '開始抓取司法院列表頁',
       sourceLocator: target.startUrl,
       itemsProcessed: 0,
       itemsTotal: 0,
-      startedAt: new Date().toISOString(),
     });
 
     while (currentUrl && page < target.maxPages) {
@@ -84,11 +81,9 @@ export class JudicialSiteAdapter implements SourceAdapter {
       await context.emit('info', 'work-item-status', `抓取列表頁 ${page}`, { url: currentUrl });
       const pageResponse = await httpClient.get(currentUrl, { insecureTls: true });
       const { entries, nextPageUrl } = extractPageEntries(currentUrl, pageResponse.text());
-      await context.updateWorkItem({
-        status: 'fetching_detail',
-        currentStage: 'fetching_detail',
+      await context.beginStage('fetching_detail', {
         progress: Math.min(30 + page * 10, 60),
-        lastMessage: `列表頁 ${page} 找到 ${entries.length} 筆候選資料`,
+        message: `列表頁 ${page} 找到 ${entries.length} 筆候選資料`,
         cursor: { page, currentUrl, nextPageUrl },
       });
 
@@ -101,10 +96,10 @@ export class JudicialSiteAdapter implements SourceAdapter {
           ...entry,
           content: extractDetailContent(entry.link, detailResponse.text()),
         });
-        await context.updateWorkItem({
+        await context.advance({
           itemsProcessed: items.length,
           itemsTotal: items.length,
-          lastMessage: `已抓取 ${entry.title}`,
+          message: `已抓取 ${entry.title}`,
           sourceLocator: entry.link,
         });
       }
@@ -137,11 +132,9 @@ export class JudicialSiteAdapter implements SourceAdapter {
       ]),
     ].join('\n');
 
-    await context.updateWorkItem({
-      status: 'writing_output',
-      currentStage: 'writing_output',
+    await context.beginStage('writing_output', {
       progress: 85,
-      lastMessage: '寫入補充資料快照中',
+      message: '寫入補充資料快照中',
       itemsTotal: items.length,
       itemsProcessed: items.length,
     });
@@ -153,12 +146,10 @@ export class JudicialSiteAdapter implements SourceAdapter {
       pages: page,
       items: items.length,
     });
-    await context.updateWorkItem({
-      status: 'done',
-      currentStage: 'done',
-      progress: 100,
-      lastMessage: `完成 ${items.length} 筆司法院補充資料輸出`,
-      finishedAt: new Date().toISOString(),
+    await context.complete({
+      message: `完成 ${items.length} 筆司法院補充資料輸出`,
+      itemsProcessed: items.length,
+      itemsTotal: items.length,
     });
   }
 }

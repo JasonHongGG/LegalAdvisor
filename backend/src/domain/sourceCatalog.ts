@@ -11,6 +11,6 @@ export interface SourceCatalogEntry {
   notes: string;
   supportedTargetKinds: string[];
   capabilities: string[];
-  taskBuilderFields: SourceFormFieldDto[];
+  runBuilderFields: SourceFormFieldDto[];
   recommendedConcurrency: number;
 }
