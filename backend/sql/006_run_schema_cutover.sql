@@ -17,24 +17,73 @@ begin
   end if;
 
   if to_regclass('legal_advisor.crawl_sources') is not null then
-    execute 'alter table legal_advisor.crawl_sources rename column if exists task_builder_fields to run_builder_fields';
+    if exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'legal_advisor'
+        and table_name = 'crawl_sources'
+        and column_name = 'task_builder_fields'
+    ) then
+      execute 'alter table legal_advisor.crawl_sources rename column task_builder_fields to run_builder_fields';
+    end if;
   end if;
 
   if to_regclass('legal_advisor.crawl_run_targets') is not null then
-    execute 'alter table legal_advisor.crawl_run_targets rename column if exists task_id to run_id';
+    if exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'legal_advisor'
+        and table_name = 'crawl_run_targets'
+        and column_name = 'task_id'
+    ) then
+      execute 'alter table legal_advisor.crawl_run_targets rename column task_id to run_id';
+    end if;
   end if;
 
   if to_regclass('legal_advisor.crawl_work_items') is not null then
-    execute 'alter table legal_advisor.crawl_work_items rename column if exists task_id to run_id';
-    execute 'alter table legal_advisor.crawl_work_items rename column if exists task_target_id to run_target_id';
+    if exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'legal_advisor'
+        and table_name = 'crawl_work_items'
+        and column_name = 'task_id'
+    ) then
+      execute 'alter table legal_advisor.crawl_work_items rename column task_id to run_id';
+    end if;
+
+    if exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'legal_advisor'
+        and table_name = 'crawl_work_items'
+        and column_name = 'task_target_id'
+    ) then
+      execute 'alter table legal_advisor.crawl_work_items rename column task_target_id to run_target_id';
+    end if;
   end if;
 
   if to_regclass('legal_advisor.crawl_events') is not null then
-    execute 'alter table legal_advisor.crawl_events rename column if exists task_id to run_id';
+    if exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'legal_advisor'
+        and table_name = 'crawl_events'
+        and column_name = 'task_id'
+    ) then
+      execute 'alter table legal_advisor.crawl_events rename column task_id to run_id';
+    end if;
   end if;
 
   if to_regclass('legal_advisor.crawl_run_artifact_links') is not null then
-    execute 'alter table legal_advisor.crawl_run_artifact_links rename column if exists task_id to run_id';
+    if exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'legal_advisor'
+        and table_name = 'crawl_run_artifact_links'
+        and column_name = 'task_id'
+    ) then
+      execute 'alter table legal_advisor.crawl_run_artifact_links rename column task_id to run_id';
+    end if;
   end if;
 end $$;
 

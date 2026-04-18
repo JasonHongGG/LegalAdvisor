@@ -1,6 +1,6 @@
 import type { RunTargetConfig } from '@legaladvisor/shared';
 import type { SourceAdapterResolver } from '../../adapters/base.js';
-import { AdapterRateLimitError, getErrorMessage, NotFoundError } from '../../domain/errors.js';
+import { AdapterRateLimitError, AdapterTransientError, getErrorMessage, NotFoundError } from '../../domain/errors.js';
 import { isRunExecutionBlocked, isRunnableWorkItemStatus } from '../../domain/runPolicy.js';
 import type { SourceRepository, RunRepository } from '../ports/repositories.js';
 import type { RunActivityService } from './runActivityService.js';
@@ -76,12 +76,33 @@ export class RunExecutionService {
     });
 
     try {
-      await adapter.run(executionContext);
+      await this.runAdapterWithRetry(adapter, executionContext, 3);
     } catch (error) {
       const failureMessage = error instanceof AdapterRateLimitError ? error.message : getErrorMessage(error);
       await this.failWorkItem(run.id, workItem.id, failureMessage);
     } finally {
       await this.runLifecycleService.recomputeRun(run.id);
+    }
+  }
+
+  private async runAdapterWithRetry(
+    adapter: ReturnType<SourceAdapterResolver['get']>,
+    context: Awaited<ReturnType<RunExecutionContextFactory['create']>>,
+    maxAttempts: number,
+  ) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await adapter.run(context);
+        return;
+      } catch (error) {
+        if (error instanceof AdapterTransientError && attempt < maxAttempts) {
+          const delayMs = 1000 * 2 ** (attempt - 1);
+          await context.reporting.emit('warning', 'log', `暫時性錯誤，${delayMs / 1000}s 後重試 (${attempt}/${maxAttempts}): ${error.message}`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+        throw error;
+      }
     }
   }
 

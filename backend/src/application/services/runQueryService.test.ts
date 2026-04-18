@@ -176,8 +176,8 @@ describe('RunQueryService', () => {
     const service = new RunQueryService(runRepository as never, artifactRepository as never, eventRepository as never);
     await expect(service.getRunExecutionView('run-1')).resolves.toEqual({
       run: createRunSummary(),
-      timeline,
-      events,
+      steps: timeline,
+      systemEvents: events,
       artifacts,
     });
   });

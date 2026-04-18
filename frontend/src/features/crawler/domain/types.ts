@@ -1,4 +1,4 @@
-export type FieldValue = string | number | boolean;
+export type FieldValue = string | number | boolean | null;
 
 export type TimelineStep = {
   id: string;

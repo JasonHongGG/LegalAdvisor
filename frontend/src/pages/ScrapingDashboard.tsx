@@ -32,6 +32,7 @@ export function ScrapingDashboard() {
             <RunComposer
               source={controller.selectedSource}
               formValues={controller.formValues}
+              fieldErrors={controller.fieldErrors}
               isSubmitting={controller.isSubmitting}
               onSubmit={controller.handleCreateRun}
               onFieldChange={controller.updateFormValue}

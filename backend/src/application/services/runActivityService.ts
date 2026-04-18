@@ -51,6 +51,10 @@ export class RunActivityService implements RunExecutionReporter {
     this.streamPublisher.publish({ kind: 'run-overview-updated', runId: runId, occurredAt: isoNow() });
   }
 
+  publishRunViewUpdated(runId: string) {
+    this.streamPublisher.publish({ kind: 'run-view-updated', runId: runId, occurredAt: isoNow() });
+  }
+
   publishSourceUpdated(sourceId: SourceOverviewDto['id']) {
     this.streamPublisher.publish({ kind: 'source-updated', sourceId, occurredAt: isoNow() });
   }

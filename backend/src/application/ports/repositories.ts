@@ -1,7 +1,7 @@
 import type {
   ArtifactDto,
   ArtifactContentStatus,
-  CreateRunRequestDto,
+  RunTargetConfig,
   SourceId,
   SourceOverviewDto,
   RunDetailDto,
@@ -110,6 +110,11 @@ export type CanonicalLawVersionMatch = {
   artifacts: ArtifactDto[];
 };
 
+export type CreateRunRecordInput = {
+  sourceId: SourceId;
+  targets: RunTargetConfig[];
+};
+
 export type WorkItemPatch = {
   status?: string;
   progress?: number;
@@ -134,7 +139,7 @@ export interface SourceRepository {
 }
 
 export interface RunRepository {
-  createRun(input: CreateRunRequestDto): Promise<string>;
+  createRun(input: CreateRunRecordInput): Promise<string>;
   listRunSummaries(): Promise<RunSummaryDto[]>;
   getRunDetail(runId: string): Promise<RunDetailDto | null>;
   getRunSummary(runId: string): Promise<RunSummaryDto | null>;
@@ -163,4 +168,36 @@ export interface EventRepository {
   appendEvent(input: InsertEventInput): Promise<RunEventDto>;
   listRunEvents(runId: string, options?: { afterSequenceNo?: number; limit?: number }): Promise<RunEventDto[]>;
   listRunTimelineEntries(runId: string, options?: { afterSequenceNo?: number; limit?: number }): Promise<RunTimelineEntryDto[]>;
+}
+
+export type InsertStageInput = {
+  id: string;
+  runId: string;
+  workItemId: string;
+  stageName: string;
+  status: 'running' | 'completed' | 'failed';
+  message: string;
+  progress?: number;
+  itemsProcessed?: number;
+  itemsTotal?: number;
+  sourceLocator?: string | null;
+  startedAt?: string;
+};
+
+export type UpdateStageInput = {
+  status?: 'running' | 'completed' | 'failed';
+  message?: string;
+  progress?: number;
+  itemsProcessed?: number;
+  itemsTotal?: number;
+  sourceLocator?: string | null;
+  endedAt?: string | null;
+};
+
+export interface StageRepository {
+  insertStage(input: InsertStageInput): Promise<void>;
+  updateStage(stageId: string, patch: UpdateStageInput): Promise<void>;
+  getActiveStage(workItemId: string): Promise<{ id: string; stageName: string } | null>;
+  closeActiveStage(workItemId: string, endedAt: string): Promise<void>;
+  listRunStages(runId: string): Promise<RunTimelineEntryDto[]>;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildInitialFormValues, buildRunTarget } from './runComposer';
+import { buildInitialFormValues } from './runComposer';
 
 describe('runComposer domain helpers', () => {
   it('builds initial field values from source form definitions', () => {
@@ -19,15 +19,10 @@ describe('runComposer domain helpers', () => {
       capabilities: [],
       runBuilderFields: [
         { name: 'label', label: 'Label', type: 'text', required: true },
-        { name: 'exactMatch', label: 'Exact', type: 'checkbox', required: false },
+        { name: 'exactMatch', label: 'Exact', type: 'checkbox', required: false, defaultValue: false },
       ],
     });
 
     expect(values).toEqual({ label: '', exactMatch: false });
-  });
-
-  it('builds law target config with sensible fallbacks', () => {
-    const target = buildRunTarget('moj-laws', { query: '民法', exactMatch: true });
-    expect(target).toEqual({ kind: 'law', label: '民法', query: '民法', exactMatch: true });
   });
 });

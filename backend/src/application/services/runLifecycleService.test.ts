@@ -1,23 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
-import { InMemoryCrawlRepository } from '../../db/inMemoryCrawlRepository.js';
+import { createInMemoryRepositories } from '../../db/memory/index.js';
 import { sourceRegistry } from '../../infrastructure/catalog/sourceRegistry.js';
 import { RunActivityService } from './runActivityService.js';
 import { RunLifecycleService } from './runLifecycleService.js';
 
 describe('RunLifecycleService', () => {
   it('records a terminal run-status event when recompute transitions the run to completed', async () => {
-    const repository = new InMemoryCrawlRepository();
-    await repository.ensureSourceCatalog(sourceRegistry.list());
+    const repos = createInMemoryRepositories();
+    await repos.sourceRepository.ensureSourceCatalog(sourceRegistry.list());
 
     const streamPublisher = {
       subscribe: vi.fn(),
       publish: vi.fn(),
     };
 
-    const runActivityService = new RunActivityService(repository, streamPublisher);
-    const runLifecycleService = new RunLifecycleService(repository, runActivityService);
+    const runActivityService = new RunActivityService(repos.eventRepository, streamPublisher);
+    const runLifecycleService = new RunLifecycleService(repos.runRepository, runActivityService);
 
-    const runId = await repository.createRun({
+    const runId = await repos.runRepository.createRun({
       sourceId: 'moj-laws',
       targets: [{ kind: 'law', label: '民法', query: '民法', exactMatch: false }],
     });
@@ -27,13 +27,13 @@ describe('RunLifecycleService', () => {
       eventMessage: '工作器開始執行任務。',
     });
 
-    const run = await repository.getRunDetail(runId);
+    const run = await repos.runRepository.getRunDetail(runId);
     const workItemId = run?.workItems[0]?.id;
     if (!workItemId) {
       throw new Error('expected a work item to exist');
     }
 
-    await repository.updateWorkItem(workItemId, {
+    await repos.runRepository.updateWorkItem(workItemId, {
       status: 'done',
       progress: 100,
       current_stage: 'done',
@@ -46,7 +46,7 @@ describe('RunLifecycleService', () => {
 
     await runLifecycleService.recomputeRun(runId);
 
-    const nextRun = await repository.getRunDetail(runId);
+    const nextRun = await repos.runRepository.getRunDetail(runId);
     expect(nextRun?.status).toBe('completed');
     expect(nextRun?.recentEvents.some((event) => event.eventType === 'run-status' && event.message === '任務已完成。')).toBe(true);
   });

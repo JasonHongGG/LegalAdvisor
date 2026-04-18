@@ -15,30 +15,18 @@ const schemaName = z.string().regex(/^[a-z_][a-z0-9_]*$/);
 const envSchema = z
   .object({
     PORT: z.coerce.number().int().min(1).max(65535).default(4000),
-    DATABASE_WRITE_MODE: z.enum(['enabled', 'disabled']).default('enabled'),
-    SUPABASE_DB_URL: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().min(1).optional()),
+    SUPABASE_DB_URL: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().min(1)),
     SUPABASE_SCHEMA: schemaName.default('legal_advisor'),
     SUPABASE_QUEUE_SCHEMA: schemaName.default('legal_advisor_queue'),
     SOURCE_FETCH_INSECURE_TLS: z
       .string()
       .optional()
       .transform((value) => value !== 'false'),
-  })
-  .superRefine((value, ctx) => {
-    if (value.DATABASE_WRITE_MODE === 'enabled' && !value.SUPABASE_DB_URL) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['SUPABASE_DB_URL'],
-        message: 'DATABASE_WRITE_MODE=enabled 時必須提供 SUPABASE_DB_URL。',
-      });
-    }
   });
 
 export interface AppConfig {
   port: number;
-  databaseWriteMode: 'enabled' | 'disabled';
-  databaseWritesEnabled: boolean;
-  supabaseDbUrl: string | null;
+  supabaseDbUrl: string;
   supabaseSchema: string;
   supabaseQueueSchema: string;
   sourceFetchInsecureTls: boolean;
@@ -57,16 +45,14 @@ export function loadConfig(): AppConfig {
     throw new Error(
       `後端環境設定不完整。請先建立 backend/.env，再重新啟動後端。\n` +
         `可直接複製 backend/.env.example 為 backend/.env 後填入實際值。\n` +
-        `若目前只想測流程、不想寫入資料庫，可改設 DATABASE_WRITE_MODE=disabled。\n\n` +
+        `此版本已移除 production in-memory runtime，必須提供可用的資料庫連線。\n\n` +
         `${issues}`,
     );
   }
 
   cachedConfig = {
     port: parsed.data.PORT,
-    databaseWriteMode: parsed.data.DATABASE_WRITE_MODE,
-    databaseWritesEnabled: parsed.data.DATABASE_WRITE_MODE === 'enabled',
-    supabaseDbUrl: parsed.data.SUPABASE_DB_URL ?? null,
+    supabaseDbUrl: parsed.data.SUPABASE_DB_URL,
     supabaseSchema: parsed.data.SUPABASE_SCHEMA,
     supabaseQueueSchema: parsed.data.SUPABASE_QUEUE_SCHEMA,
     sourceFetchInsecureTls: parsed.data.SOURCE_FETCH_INSECURE_TLS,

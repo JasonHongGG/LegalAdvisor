@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import type { CrawlerApplicationFacade } from '../../../application/services/crawlerApplicationFacade.js';
+import type { AppServices } from '../../../compositionRoot.js';
 
-export function createSourceRouter(application: CrawlerApplicationFacade) {
+export function createSourceRouter({ sourceCatalogService }: Pick<AppServices, 'sourceCatalogService'>) {
   const router = Router();
 
   router.get('/', async (_request, response, next) => {
     try {
-      response.json(await application.listSources());
+      response.json(await sourceCatalogService.listSources());
     } catch (error) {
       next(error);
     }
@@ -14,7 +14,7 @@ export function createSourceRouter(application: CrawlerApplicationFacade) {
 
   router.post('/refresh', async (_request, response, next) => {
     try {
-      response.json(await application.refreshSources());
+      response.json(await sourceCatalogService.refreshSources());
     } catch (error) {
       next(error);
     }

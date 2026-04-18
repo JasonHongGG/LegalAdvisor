@@ -70,5 +70,6 @@ export interface RunExecutionReporter {
   publishRunCreated(runId: string): void;
   publishRunRemoved(runId: string): void;
   publishRunOverviewUpdated(runId: string): void;
+  publishRunViewUpdated(runId: string): void;
   publishSourceUpdated(sourceId: SourceOverviewDto['id']): void;
 }

@@ -1,17 +1,21 @@
 import { ZodError } from 'zod';
 import { createRunRequestSchema } from '@legaladvisor/shared';
-import type { RunRepository } from '../ports/repositories.js';
+import type { RunRepository, SourceRepository } from '../ports/repositories.js';
 import type { RunQueuePort } from '../ports/runtime.js';
+import type { SourceAdapterResolver } from '../../adapters/base.js';
 import type { RunActivityService } from './runActivityService.js';
 import type { RunLifecycleService } from './runLifecycleService.js';
-import { NotFoundError, RequestValidationError } from '../../domain/errors.js';
+import { getErrorMessage, NotFoundError, RequestValidationError } from '../../domain/errors.js';
+import { buildCreateRunPlan } from '../../crawl-core/createRunPlan.js';
 
 export class RunCommandService {
   constructor(
+    private readonly sourceRepository: SourceRepository,
     private readonly runRepository: RunRepository,
     private readonly runQueue: RunQueuePort,
     private readonly runActivityService: RunActivityService,
     private readonly runLifecycleService: RunLifecycleService,
+    private readonly adapterResolver: SourceAdapterResolver,
   ) {}
 
   async createRun(payload: unknown) {
@@ -25,7 +29,17 @@ export class RunCommandService {
       throw error;
     }
 
-    const runId = await this.runRepository.createRun(input);
+    const source = await this.sourceRepository.getSourceById(input.sourceId);
+    if (!source) {
+      throw new NotFoundError('Source not found', { sourceId: input.sourceId });
+    }
+
+    const plan = buildCreateRunPlan(source, input, this.adapterResolver);
+
+    const runId = await this.runRepository.createRun({
+      sourceId: plan.sourceId,
+      targets: plan.targets,
+    });
 
     const createdRun = await this.getRunOrThrow(runId);
     for (const workItem of createdRun.workItems) {
@@ -41,7 +55,21 @@ export class RunCommandService {
       eventMessage: '任務已建立，等待工作器接手。',
     });
     this.runLifecycleService.publishRunCreated(runId);
-    await this.runQueue.enqueueTask(runId);
+
+    try {
+      await this.runQueue.enqueueTask(runId);
+    } catch (error) {
+      await this.runLifecycleService.setRunStatus(runId, 'failed', {
+        summary: '任務派發失敗',
+        eventLevel: 'error',
+        eventMessage: '工作佇列派發失敗。',
+        eventDetails: {
+          reason: getErrorMessage(error),
+        },
+      });
+      throw new Error(`工作佇列派發失敗：${getErrorMessage(error)}`);
+    }
+
     return this.getRunOrThrow(runId);
   }
 

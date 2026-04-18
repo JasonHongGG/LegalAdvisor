@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip';
-import type { LawTargetConfig } from '@legaladvisor/shared';
+import type { LawTargetConfig, RunTargetConfig } from '@legaladvisor/shared';
 import type { AdapterContext, SourceAdapter } from './base.js';
 import { httpClient } from '../httpClient.js';
 import { normalizeWhitespace, parseJsonText, toMarkdownHeading } from '../utils.js';
@@ -73,14 +73,22 @@ function renderLawMarkdown(record: MojLawRecord) {
 export class MojLawAdapter implements SourceAdapter {
   readonly sourceId = 'moj-laws' as const;
 
+  buildTargets(fieldValues: Record<string, string | number | boolean | null>): RunTargetConfig[] {
+    return [{
+      kind: 'law',
+      label: String(fieldValues.label),
+      query: String(fieldValues.query),
+      exactMatch: Boolean(fieldValues.exactMatch),
+    }];
+  }
+
   async run(context: AdapterContext) {
     const target = context.target as LawTargetConfig;
-    await context.beginStage('fetching_index', {
+    await context.observation.beginStage('fetching_index', {
       progress: 5,
       message: '下載法規資料總檔中',
       sourceLocator: 'https://law.moj.gov.tw/api/ch/law/json',
     });
-    await context.emit('info', 'work-item-status', '開始下載法規資料總檔。', { query: target.query });
 
     const response = await httpClient.get('https://law.moj.gov.tw/api/ch/law/json', {
       insecureTls: true,
@@ -92,7 +100,7 @@ export class MojLawAdapter implements SourceAdapter {
       throw new Error('法規總檔缺少 ChLaw.json。');
     }
 
-    await context.beginStage('parsing', {
+    await context.observation.beginStage('parsing', {
       progress: 25,
       message: '解析法規資料中',
     });
@@ -103,14 +111,14 @@ export class MojLawAdapter implements SourceAdapter {
       throw new Error(`找不到符合「${target.query}」的法規。`);
     }
 
-    await context.beginStage('normalizing', {
+    await context.observation.beginStage('normalizing', {
       progress: 45,
       message: `找到 ${matchedLaws.length} 部法規，整理資料中`,
       itemsTotal: matchedLaws.length,
       itemsProcessed: 0,
     });
 
-    await context.beginStage('writing_output', {
+    await context.observation.beginStage('writing_output', {
       progress: 55,
       message: `開始輸出 ${matchedLaws.length} 部法規快照`,
       itemsTotal: matchedLaws.length,
@@ -120,7 +128,7 @@ export class MojLawAdapter implements SourceAdapter {
     let processed = 0;
     for (const record of matchedLaws) {
       processed += 1;
-      const contentResult = await context.persistLawArtifacts({
+      const contentResult = await context.artifacts.persistLawArtifacts({
         lawName: record.LawName,
         lawLevel: record.LawLevel,
         lawUrl: record.LawURL,
@@ -142,7 +150,7 @@ export class MojLawAdapter implements SourceAdapter {
         histories: normalizeWhitespace(record.LawHistories || ''),
         documentMarkdown: renderLawMarkdown(record),
       });
-      await context.advance({
+      await context.observation.advance({
         progress: 45 + (processed / matchedLaws.length) * 45,
         itemsProcessed: processed,
         itemsTotal: matchedLaws.length,
@@ -154,14 +162,14 @@ export class MojLawAdapter implements SourceAdapter {
           matchedCount: matchedLaws.length,
         },
       });
-      await context.emit('info', 'artifact-emitted', `已完成 ${record.LawName} 的法規版本處理。`, {
+      await context.reporting.emit('info', 'artifact-emitted', `已完成 ${record.LawName} 的法規版本處理。`, {
         processed,
         total: matchedLaws.length,
         contentStatus: contentResult.contentStatus,
       });
     }
 
-    await context.complete({
+    await context.observation.complete({
       message: `完成 ${matchedLaws.length} 部法規輸出`,
       itemsProcessed: matchedLaws.length,
       itemsTotal: matchedLaws.length,

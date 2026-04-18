@@ -78,13 +78,35 @@ export type EventType = (typeof eventTypes)[number];
 export const timelineStateTones = ['done', 'running', 'failed', 'cancelled'] as const;
 export type TimelineStateTone = (typeof timelineStateTones)[number];
 
+export type SourceFormFieldValue = string | number | boolean | null;
+
+export interface SourceFormFieldValidationDto {
+  minLength?: number;
+  maxLength?: number;
+  min?: number;
+  max?: number;
+  integer?: boolean;
+  url?: boolean;
+}
+
+export interface FieldErrorDto {
+  field: string;
+  message: string;
+}
+
+export interface ValidationErrorDetailsDto {
+  fieldErrors: FieldErrorDto[];
+}
+
 export interface SourceFormFieldDto {
   name: string;
   label: string;
   type: 'text' | 'number' | 'url' | 'checkbox';
   required: boolean;
+  defaultValue?: SourceFormFieldValue;
   placeholder?: string;
   description?: string;
+  validation?: SourceFormFieldValidationDto;
 }
 
 export interface SourceOverviewDto {
@@ -177,7 +199,26 @@ export interface RunEventDto {
   occurredAt: string;
 }
 
-export interface RunTimelineEntryDto {
+export const stageStatuses = ['running', 'completed', 'failed'] as const;
+export type StageStatus = (typeof stageStatuses)[number];
+
+export interface WorkItemStageDto {
+  id: string;
+  runId: string;
+  workItemId: string;
+  stageName: string;
+  status: StageStatus;
+  message: string;
+  progress: number;
+  itemsProcessed: number;
+  itemsTotal: number;
+  sourceLocator: string | null;
+  sequenceNo: number;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+export interface RunStepDto {
   id: string;
   runId: string;
   workItemId: string | null;
@@ -192,10 +233,12 @@ export interface RunTimelineEntryDto {
   endedAt: string | null;
 }
 
+export type RunTimelineEntryDto = RunStepDto;
+
 export interface RunExecutionViewDto {
   run: RunSummaryDto;
-  timeline: RunTimelineEntryDto[];
-  events: RunEventDto[];
+  steps: RunStepDto[];
+  systemEvents: RunEventDto[];
   artifacts: ArtifactDto[];
 }
 
@@ -290,10 +333,16 @@ export interface RunDetailDto extends RunSummaryDto {
 
 export interface CreateRunRequestDto {
   sourceId: SourceId;
-  targets: RunTargetConfig[];
+  fieldValues: Record<string, SourceFormFieldValue>;
 }
 
 export interface RunControlResponseDto {
   runId: string;
   status: RunStatus;
+}
+
+export interface ErrorResponseDto {
+  code: string;
+  message: string;
+  details: Record<string, unknown> | ValidationErrorDetailsDto | null;
 }

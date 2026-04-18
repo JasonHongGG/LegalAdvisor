@@ -9,6 +9,7 @@ import {
   runStatuses,
   sourceHealthStatuses,
   sourceIds,
+  stageStatuses,
   targetKinds,
   timelineStateTones,
   workItemStatuses,
@@ -27,14 +28,35 @@ export const eventLevelSchema = z.enum(eventLevels);
 export const eventTypeSchema = z.enum(eventTypes);
 export const timelineStateToneSchema = z.enum(timelineStateTones);
 export const targetKindSchema = z.enum(targetKinds);
+export const sourceFormFieldValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
+export const sourceFormFieldValidationSchema = z.object({
+  minLength: z.number().int().nonnegative().optional(),
+  maxLength: z.number().int().positive().optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  integer: z.boolean().optional(),
+  url: z.boolean().optional(),
+});
+
+export const fieldErrorDtoSchema = z.object({
+  field: z.string().min(1),
+  message: z.string().min(1),
+});
+
+export const validationErrorDetailsSchema = z.object({
+  fieldErrors: z.array(fieldErrorDtoSchema),
+});
 
 export const sourceFormFieldSchema = z.object({
   name: z.string().min(1),
   label: z.string().min(1),
   type: z.enum(['text', 'number', 'url', 'checkbox']),
   required: z.boolean(),
+  defaultValue: sourceFormFieldValueSchema.optional(),
   placeholder: z.string().optional(),
   description: z.string().optional(),
+  validation: sourceFormFieldValidationSchema.optional(),
 });
 
 export const lawTargetConfigSchema = z.object({
@@ -67,7 +89,7 @@ export const runTargetConfigSchema = z.discriminatedUnion('kind', [
 
 export const createRunRequestSchema = z.object({
   sourceId: sourceIdSchema,
-  targets: z.array(runTargetConfigSchema).min(1).max(20),
+  fieldValues: z.record(z.string(), sourceFormFieldValueSchema),
 });
 
 export const runControlResponseSchema = z.object({
@@ -115,7 +137,25 @@ export const runEventDtoSchema = z.object({
   occurredAt: z.string().min(1),
 });
 
-export const runTimelineEntryDtoSchema = z.object({
+export const stageStatusSchema = z.enum(stageStatuses);
+
+export const workItemStageDtoSchema = z.object({
+  id: z.string().min(1),
+  runId: z.string().min(1),
+  workItemId: z.string().min(1),
+  stageName: z.string().min(1),
+  status: stageStatusSchema,
+  message: z.string(),
+  progress: z.number().min(0).max(100),
+  itemsProcessed: z.number().int().nonnegative(),
+  itemsTotal: z.number().int().nonnegative(),
+  sourceLocator: z.string().nullable(),
+  sequenceNo: z.number().int().nonnegative(),
+  startedAt: z.string().min(1),
+  endedAt: z.string().nullable(),
+});
+
+export const runStepDtoSchema = z.object({
   id: z.string().min(1),
   runId: z.string().min(1),
   workItemId: z.string().nullable(),
@@ -246,8 +286,8 @@ export const runSummaryDtoSchema = z.object({
 
 export const runExecutionViewDtoSchema = z.object({
   run: runSummaryDtoSchema,
-  timeline: z.array(runTimelineEntryDtoSchema),
-  events: z.array(runEventDtoSchema),
+  steps: z.array(runStepDtoSchema),
+  systemEvents: z.array(runEventDtoSchema),
   artifacts: z.array(artifactDtoSchema),
 });
 
@@ -256,6 +296,12 @@ export const runDetailDtoSchema = runSummaryDtoSchema.extend({
   recentEvents: z.array(runEventDtoSchema),
   artifacts: z.array(artifactDtoSchema),
   manifest: runManifestDtoSchema.nullable(),
+});
+
+export const errorResponseSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  details: z.union([z.record(z.string(), z.unknown()), validationErrorDetailsSchema, z.null()]),
 });
 
 export const runStreamEventSchema = z.union([

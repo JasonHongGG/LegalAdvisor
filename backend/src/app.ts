@@ -1,12 +1,12 @@
 import cors from 'cors';
 import express from 'express';
-import type { CrawlerApplicationFacade } from './application/services/crawlerApplicationFacade.js';
+import type { AppServices } from './compositionRoot.js';
 import { errorHandler } from './presentation/http/middleware/errorHandler.js';
 import { createRunRouter } from './presentation/http/routes/runs.js';
 import { createSourceRouter } from './presentation/http/routes/sources.js';
 import { createAttachmentDisposition } from './utils.js';
 
-export function createApp(application: CrawlerApplicationFacade) {
+export function createApp(services: AppServices) {
   const app = express();
 
   app.use(cors({ exposedHeaders: ['Content-Disposition'] }));
@@ -24,11 +24,11 @@ export function createApp(application: CrawlerApplicationFacade) {
     });
   });
 
-  app.use('/api/sources', createSourceRouter(application));
-  app.use('/api/runs', createRunRouter(application));
+  app.use('/api/sources', createSourceRouter(services));
+  app.use('/api/runs', createRunRouter(services));
   app.get('/api/artifacts/:artifactId/download', async (request, response, next) => {
     try {
-      const { artifact, buffer } = await application.downloadArtifact(request.params.artifactId);
+      const { artifact, buffer } = await services.runQueryService.downloadArtifact(request.params.artifactId);
       response.setHeader('Content-Type', artifact.contentType);
       response.setHeader('Content-Disposition', createAttachmentDisposition(artifact.fileName));
       response.send(buffer);
@@ -39,7 +39,7 @@ export function createApp(application: CrawlerApplicationFacade) {
 
   app.get('/api/artifacts/:artifactId/preview', async (request, response, next) => {
     try {
-      response.json(await application.previewArtifact(request.params.artifactId));
+      response.json(await services.runQueryService.previewArtifact(request.params.artifactId));
     } catch (error) {
       next(error);
     }

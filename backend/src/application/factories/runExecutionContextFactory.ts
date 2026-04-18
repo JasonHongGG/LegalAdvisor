@@ -1,87 +1,25 @@
 import type {
   ArtifactKind,
-  EventLevel,
-  EventType,
   SourceOverviewDto,
   RunDetailDto,
   RunTargetConfig,
   WorkItemDto,
 } from '@legaladvisor/shared';
-import type { ArtifactRepository, RunRepository } from '../ports/repositories.js';
+import type {
+  AdapterArtifactPort,
+  AdapterContext,
+  AdapterObservationPort,
+  AdapterReportingPort,
+  PersistLawArtifactsInput,
+  WorkItemProgressPayload,
+  WorkItemStage,
+} from '../../adapters/base.js';
+import type { ArtifactRepository, RunRepository, StageRepository } from '../ports/repositories.js';
 import type { ArtifactStoragePort, RunExecutionReporter } from '../ports/runtime.js';
 import type { ArtifactWriteResult } from '../ports/runtime.js';
 import type { LawArtifactRegistryService } from '../services/lawArtifactRegistryService.js';
 import type { RunLifecycleService } from '../services/runLifecycleService.js';
 import { createId } from '../../utils.js';
-
-type RunExecutionContext = {
-  runId: string;
-  workItemId: string;
-  source: SourceOverviewDto;
-  target: RunTargetConfig;
-  beginStage(stage: Exclude<WorkItemDto['status'], 'pending' | 'skipped' | 'failed'>, payload: {
-    progress?: number;
-    message: string;
-    sourceLocator?: string | null;
-    cursor?: Record<string, unknown> | null;
-    itemsProcessed?: number;
-    itemsTotal?: number;
-    warningCount?: number;
-    errorCount?: number;
-    retryCount?: number;
-  }): Promise<void>;
-  advance(payload: {
-    progress?: number;
-    message?: string;
-    sourceLocator?: string | null;
-    cursor?: Record<string, unknown> | null;
-    itemsProcessed?: number;
-    itemsTotal?: number;
-    warningCount?: number;
-    errorCount?: number;
-    retryCount?: number;
-  }): Promise<void>;
-  complete(payload: {
-    progress?: number;
-    message: string;
-    sourceLocator?: string | null;
-    cursor?: Record<string, unknown> | null;
-    itemsProcessed?: number;
-    itemsTotal?: number;
-    warningCount?: number;
-    errorCount?: number;
-    retryCount?: number;
-  }): Promise<void>;
-  emit(level: EventLevel, eventType: EventType, message: string, details?: Record<string, unknown>): Promise<void>;
-  writeJsonArtifact(artifactKind: ArtifactKind, baseName: string, data: unknown, metadata?: Record<string, unknown>): Promise<ArtifactWriteResult>;
-  writeMarkdownArtifact(artifactKind: ArtifactKind, baseName: string, content: string, metadata?: Record<string, unknown>): Promise<ArtifactWriteResult>;
-  persistLawArtifacts(input: {
-    lawName: string;
-    lawLevel: string;
-    lawUrl: string;
-    category: string;
-    modifiedDate: string;
-    effectiveDate: string;
-    effectiveNote: string;
-    abandonNote: string;
-    hasEnglishVersion: boolean;
-    englishName: string;
-    sourceUpdateDate: string;
-    query: string;
-    exactMatch: boolean;
-    articleEntries: Array<{
-      type: string;
-      no: string;
-      content: string;
-    }>;
-    histories: string;
-    documentMarkdown: string;
-  }): Promise<{
-    contentStatus: 'new' | 'reused';
-    canonicalDocumentId: string;
-    canonicalVersionId: string;
-  }>;
-};
 
 export class RunExecutionContextFactory {
   constructor(
@@ -91,6 +29,7 @@ export class RunExecutionContextFactory {
     private readonly runActivityReporter: RunExecutionReporter,
     private readonly lawArtifactRegistry: LawArtifactRegistryService,
     private readonly runLifecycleService: RunLifecycleService,
+    private readonly stageRepository: StageRepository,
   ) {}
 
   async create(params: {
@@ -98,7 +37,7 @@ export class RunExecutionContextFactory {
     workItem: WorkItemDto;
     source: SourceOverviewDto;
     target: RunTargetConfig;
-  }): Promise<RunExecutionContext> {
+  }): Promise<AdapterContext> {
     const applyWorkItemPatch = async (patch: {
       status?: WorkItemDto['status'];
       progress?: number;
@@ -114,9 +53,6 @@ export class RunExecutionContextFactory {
       startedAt?: string | null;
       finishedAt?: string | null;
     }) => {
-      const currentRun = await this.requireRun(params.run.id);
-      const currentWorkItem = currentRun.workItems.find((entry) => entry.id === params.workItem.id) ?? null;
-
       await this.runRepository.updateWorkItem(params.workItem.id, {
         status: patch.status,
         progress: patch.progress,
@@ -133,39 +69,28 @@ export class RunExecutionContextFactory {
         finished_at: patch.finishedAt,
       });
 
-      const statusEvent = this.buildWorkItemStatusEvent(currentWorkItem, patch);
-      if (statusEvent) {
-        await this.runActivityReporter.appendRunEvent(
-          params.run.id,
-          params.workItem.id,
-          'work-item-status',
-          statusEvent.level,
-          statusEvent.message,
-          statusEvent.details,
-        );
-      }
-
-      const progressEvent = this.buildWorkItemProgressEvent(currentWorkItem, patch);
-      if (progressEvent) {
-        await this.runActivityReporter.appendRunEvent(
-          params.run.id,
-          params.workItem.id,
-          'work-item-progress',
-          progressEvent.level,
-          progressEvent.message,
-          progressEvent.details,
-        );
-      }
-
       await this.runLifecycleService.recomputeRun(params.run.id);
     };
 
-    return {
-      runId: params.run.id,
-      workItemId: params.workItem.id,
-      source: params.source,
-      target: params.target,
-      beginStage: async (stage, payload) => {
+    const observation: AdapterObservationPort = {
+      beginStage: async (stage: WorkItemStage, payload: WorkItemProgressPayload) => {
+        // Close any active stage for this work item
+        await this.stageRepository.closeActiveStage(params.workItem.id, new Date().toISOString());
+
+        // Insert new stage
+        await this.stageRepository.insertStage({
+          id: createId(),
+          runId: params.run.id,
+          workItemId: params.workItem.id,
+          stageName: stage,
+          status: 'running',
+          message: payload.message,
+          progress: payload.progress,
+          itemsProcessed: payload.itemsProcessed,
+          itemsTotal: payload.itemsTotal,
+          sourceLocator: payload.sourceLocator,
+        });
+
         await applyWorkItemPatch({
           status: stage,
           currentStage: stage,
@@ -179,8 +104,22 @@ export class RunExecutionContextFactory {
           errorCount: payload.errorCount,
           retryCount: payload.retryCount,
         });
+
+        this.runActivityReporter.publishRunViewUpdated(params.run.id);
       },
       advance: async (payload) => {
+        // Update the current active stage in-place
+        const active = await this.stageRepository.getActiveStage(params.workItem.id);
+        if (active) {
+          await this.stageRepository.updateStage(active.id, {
+            message: payload.message,
+            progress: payload.progress,
+            itemsProcessed: payload.itemsProcessed,
+            itemsTotal: payload.itemsTotal,
+            sourceLocator: payload.sourceLocator,
+          });
+        }
+
         await applyWorkItemPatch({
           progress: payload.progress,
           sourceLocator: payload.sourceLocator,
@@ -192,8 +131,24 @@ export class RunExecutionContextFactory {
           errorCount: payload.errorCount,
           retryCount: payload.retryCount,
         });
+
+        this.runActivityReporter.publishRunViewUpdated(params.run.id);
       },
       complete: async (payload) => {
+        // Close the last active stage as completed
+        const active = await this.stageRepository.getActiveStage(params.workItem.id);
+        if (active) {
+          await this.stageRepository.updateStage(active.id, {
+            status: 'completed',
+            message: payload.message,
+            progress: payload.progress ?? 100,
+            itemsProcessed: payload.itemsProcessed,
+            itemsTotal: payload.itemsTotal,
+            sourceLocator: payload.sourceLocator,
+            endedAt: new Date().toISOString(),
+          });
+        }
+
         await applyWorkItemPatch({
           status: 'done',
           currentStage: 'done',
@@ -208,11 +163,19 @@ export class RunExecutionContextFactory {
           retryCount: payload.retryCount,
           finishedAt: new Date().toISOString(),
         });
+
+        this.runActivityReporter.publishRunViewUpdated(params.run.id);
       },
+    };
+
+    const reporting: AdapterReportingPort = {
       emit: async (level, eventType, message, details = {}) => {
         await this.runActivityReporter.appendRunEvent(params.run.id, params.workItem.id, eventType, level, message, details);
       },
-      writeJsonArtifact: async (artifactKind, baseName, data, metadata = {}) => {
+    };
+
+    const artifacts: AdapterArtifactPort = {
+      writeJson: async (artifactKind, baseName, data, metadata = {}) => {
         const stored = await this.artifactStorage.writeJson({
           sourceId: params.source.id,
           runId: params.run.id,
@@ -225,7 +188,7 @@ export class RunExecutionContextFactory {
         await this.persistArtifact(params.run.id, params.workItem.id, artifactKind, stored);
         return stored;
       },
-      writeMarkdownArtifact: async (artifactKind, baseName, content, metadata = {}) => {
+      writeMarkdown: async (artifactKind, baseName, content, metadata = {}) => {
         const stored = await this.artifactStorage.writeMarkdown({
           sourceId: params.source.id,
           runId: params.run.id,
@@ -238,7 +201,7 @@ export class RunExecutionContextFactory {
         await this.persistArtifact(params.run.id, params.workItem.id, artifactKind, stored);
         return stored;
       },
-      persistLawArtifacts: async (input) => {
+      persistLawArtifacts: async (input: PersistLawArtifactsInput) => {
         const result = await this.lawArtifactRegistry.persistRunLawArtifacts({
           ...input,
           runId: params.run.id,
@@ -261,6 +224,16 @@ export class RunExecutionContextFactory {
         );
         return result;
       },
+    };
+
+    return {
+      runId: params.run.id,
+      workItemId: params.workItem.id,
+      source: params.source,
+      target: params.target,
+      observation,
+      artifacts,
+      reporting,
     };
   }
 
@@ -318,103 +291,6 @@ export class RunExecutionContextFactory {
       default:
         return 'crawler-output';
     }
-  }
-
-  private buildWorkItemStatusEvent(
-    currentWorkItem: WorkItemDto | null,
-    patch: {
-      status?: WorkItemDto['status'];
-      progress?: number;
-      currentStage?: string;
-      sourceLocator?: string | null;
-      cursor?: Record<string, unknown> | null;
-      lastMessage?: string;
-      itemsProcessed?: number;
-      itemsTotal?: number;
-      warningCount?: number;
-      errorCount?: number;
-      retryCount?: number;
-      startedAt?: string | null;
-      finishedAt?: string | null;
-    },
-  ) {
-    if (!currentWorkItem) {
-      return null;
-    }
-
-    const statusChanged = patch.status !== undefined && patch.status !== currentWorkItem.status;
-    const stageChanged = patch.currentStage !== undefined && patch.currentStage !== currentWorkItem.currentStage;
-    const startedChanged = patch.startedAt !== undefined && patch.startedAt !== currentWorkItem.startedAt;
-    const finishedChanged = patch.finishedAt !== undefined && patch.finishedAt !== currentWorkItem.finishedAt;
-
-    if (!statusChanged && !stageChanged && !startedChanged && !finishedChanged) {
-      return null;
-    }
-
-    const nextStatus = patch.status ?? currentWorkItem.status;
-    const nextStage = patch.currentStage ?? currentWorkItem.currentStage;
-    const nextMessage = patch.lastMessage ?? currentWorkItem.lastMessage;
-
-    return {
-      level: nextStatus === 'failed' ? 'error' as const : 'info' as const,
-      message: nextMessage || `狀態更新：${nextStage}`,
-      details: {
-        status: nextStatus,
-        currentStage: nextStage,
-        label: currentWorkItem.label,
-        itemsProcessed: patch.itemsProcessed ?? currentWorkItem.itemsProcessed,
-        itemsTotal: patch.itemsTotal ?? currentWorkItem.itemsTotal,
-      },
-    };
-  }
-
-  private buildWorkItemProgressEvent(
-    currentWorkItem: WorkItemDto | null,
-    patch: {
-      status?: WorkItemDto['status'];
-      progress?: number;
-      currentStage?: string;
-      sourceLocator?: string | null;
-      cursor?: Record<string, unknown> | null;
-      lastMessage?: string;
-      itemsProcessed?: number;
-      itemsTotal?: number;
-      warningCount?: number;
-      errorCount?: number;
-      retryCount?: number;
-      startedAt?: string | null;
-      finishedAt?: string | null;
-    },
-  ) {
-    if (!currentWorkItem) {
-      return null;
-    }
-
-    const itemsProcessedChanged = patch.itemsProcessed !== undefined && patch.itemsProcessed !== currentWorkItem.itemsProcessed;
-    const progressChanged = patch.progress !== undefined && patch.progress !== currentWorkItem.progress;
-    const messageChanged = patch.lastMessage !== undefined && patch.lastMessage !== currentWorkItem.lastMessage;
-
-    if (!itemsProcessedChanged && !progressChanged && !messageChanged) {
-      return null;
-    }
-
-    const nextStatus = patch.status ?? currentWorkItem.status;
-    if (['done', 'failed', 'skipped'].includes(nextStatus)) {
-      return null;
-    }
-
-    return {
-      level: 'info' as const,
-      message: patch.lastMessage ?? currentWorkItem.lastMessage ?? '執行進度已更新。',
-      details: {
-        status: nextStatus,
-        currentStage: patch.currentStage ?? currentWorkItem.currentStage,
-        label: currentWorkItem.label,
-        itemsProcessed: patch.itemsProcessed ?? currentWorkItem.itemsProcessed,
-        itemsTotal: patch.itemsTotal ?? currentWorkItem.itemsTotal,
-        progress: patch.progress ?? currentWorkItem.progress,
-      },
-    };
   }
 
   private async requireRun(runId: string) {

@@ -1,16 +1,42 @@
 import type {
-  ArtifactPreviewDto,
   CreateRunRequestDto,
+  ErrorResponseDto,
   RunStreamEvent,
-  SourceOverviewDto,
-  RunControlResponseDto,
-  RunDetailDto,
-  RunExecutionViewDto,
-  RunSummaryDto,
+} from '@legaladvisor/shared';
+import {
+  artifactPreviewDtoSchema,
+  createRunRequestSchema,
+  errorResponseSchema,
+  runControlResponseSchema,
+  runDetailDtoSchema,
+  runExecutionViewDtoSchema,
+  runStreamEventSchema,
+  runSummaryDtoSchema,
+  sourceOverviewDtoSchema,
 } from '@legaladvisor/shared';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
 const DOWNLOAD_API_BASE = import.meta.env.DEV && API_BASE === '/api' ? 'http://localhost:4000/api' : API_BASE;
+
+type Parser<T> = {
+  parse: (value: unknown) => T;
+};
+
+export class ApiError extends Error {
+  readonly code: string;
+  readonly details: ErrorResponseDto['details'];
+
+  constructor(
+    message: string,
+    code: string,
+    details: ErrorResponseDto['details'],
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.details = details;
+  }
+}
 
 function resolveApiUrl(path: string, base = API_BASE) {
   const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base;
@@ -76,7 +102,24 @@ async function downloadFile(path: string, fallbackFileName: string) {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 }
 
-async function requestJson<T>(path: string, init?: RequestInit) {
+function parsePayload<T>(parser: Parser<T>, payload: unknown, path: string) {
+  try {
+    return parser.parse(payload);
+  } catch (error) {
+    throw new Error(`Invalid API response for ${path}: ${error instanceof Error ? error.message : 'unknown schema error'}`);
+  }
+}
+
+function toApiError(response: Response, payload: unknown, defaultMessage: string) {
+  const parsed = errorResponseSchema.safeParse(payload);
+  if (parsed.success) {
+    return new ApiError(parsed.data.message, parsed.data.code, parsed.data.details);
+  }
+
+  return new ApiError(extractErrorMessage(defaultMessage, response, payload), 'request_failed', null);
+}
+
+async function requestJsonWithSchema<T>(path: string, parser: Parser<T>, init?: RequestInit) {
   const response = await fetch(resolveApiUrl(path), {
     headers: {
       'content-type': 'application/json',
@@ -86,11 +129,12 @@ async function requestJson<T>(path: string, init?: RequestInit) {
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(payload?.message ?? `Request failed: ${response.status}`);
+    const payload = await readErrorPayload(response);
+    throw toApiError(response, payload, 'Request failed');
   }
 
-  return (await response.json()) as T;
+  const payload = await response.json();
+  return parsePayload(parser, payload, path);
 }
 
 async function requestEmpty(path: string, init?: RequestInit) {
@@ -103,46 +147,47 @@ async function requestEmpty(path: string, init?: RequestInit) {
 
 export const api = {
   listSources() {
-    return requestJson<SourceOverviewDto[]>('/sources');
+    return requestJsonWithSchema('/sources', sourceOverviewDtoSchema.array());
   },
   refreshSources() {
-    return requestJson<SourceOverviewDto[]>('/sources/refresh', { method: 'POST' });
+    return requestJsonWithSchema('/sources/refresh', sourceOverviewDtoSchema.array(), { method: 'POST' });
   },
   listRuns() {
-    return requestJson<RunSummaryDto[]>('/runs');
+    return requestJsonWithSchema('/runs', runSummaryDtoSchema.array());
   },
   getRun(runId: string) {
-    return requestJson<RunDetailDto | null>(`/runs/${runId}`);
+    return requestJsonWithSchema(`/runs/${runId}`, runDetailDtoSchema.nullable());
   },
   getRunView(runId: string) {
-    return requestJson<RunExecutionViewDto>(`/runs/${runId}/view`);
+    return requestJsonWithSchema(`/runs/${runId}/view`, runExecutionViewDtoSchema);
   },
   createRun(input: CreateRunRequestDto) {
-    return requestJson<RunDetailDto>('/runs', {
+    const payload = createRunRequestSchema.parse(input);
+    return requestJsonWithSchema('/runs', runDetailDtoSchema, {
       method: 'POST',
-      body: JSON.stringify(input),
+      body: JSON.stringify(payload),
     });
   },
   pauseRun(runId: string) {
-    return requestJson<RunControlResponseDto>(`/runs/${runId}/pause`, { method: 'POST' });
+    return requestJsonWithSchema(`/runs/${runId}/pause`, runControlResponseSchema, { method: 'POST' });
   },
   resumeRun(runId: string) {
-    return requestJson<RunControlResponseDto>(`/runs/${runId}/resume`, { method: 'POST' });
+    return requestJsonWithSchema(`/runs/${runId}/resume`, runControlResponseSchema, { method: 'POST' });
   },
   cancelRun(runId: string) {
-    return requestJson<RunControlResponseDto>(`/runs/${runId}/cancel`, { method: 'POST' });
+    return requestJsonWithSchema(`/runs/${runId}/cancel`, runControlResponseSchema, { method: 'POST' });
   },
   deleteRun(runId: string) {
     return requestEmpty(`/runs/${runId}`, { method: 'DELETE' });
   },
   retryFailedRunItems(runId: string) {
-    return requestJson<RunControlResponseDto>(`/runs/${runId}/retry-failed`, { method: 'POST' });
+    return requestJsonWithSchema(`/runs/${runId}/retry-failed`, runControlResponseSchema, { method: 'POST' });
   },
   downloadArtifact(artifactId: string, fallbackFileName = `artifact-${artifactId}`) {
     return downloadFile(`/artifacts/${artifactId}/download`, fallbackFileName);
   },
   getArtifactPreview(artifactId: string) {
-    return requestJson<ArtifactPreviewDto>(`/artifacts/${artifactId}/preview`);
+    return requestJsonWithSchema(`/artifacts/${artifactId}/preview`, artifactPreviewDtoSchema);
   },
   downloadManifest(runId: string) {
     return downloadFile(`/runs/${runId}/manifest/download`, `run-${runId}-manifest.json`);
@@ -154,6 +199,15 @@ export const api = {
     return new EventSource(resolveApiUrl('/runs/stream'));
   },
   parseRunStreamEvent(value: string) {
-    return JSON.parse(value) as RunStreamEvent;
+    return runStreamEventSchema.parse(JSON.parse(value)) as RunStreamEvent;
   },
 };
+
+export function getApiFieldErrors(error: unknown) {
+  if (!(error instanceof ApiError) || !error.details || typeof error.details !== 'object' || !('fieldErrors' in error.details)) {
+    return {} as Record<string, string>;
+  }
+
+  const fieldErrors = (error.details as { fieldErrors?: Array<{ field: string; message: string }> }).fieldErrors ?? [];
+  return Object.fromEntries(fieldErrors.map((entry) => [entry.field, entry.message]));
+}

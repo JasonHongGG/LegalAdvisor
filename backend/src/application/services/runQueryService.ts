@@ -26,7 +26,7 @@ export class RunQueryService {
       throw new NotFoundError('Run not found', { runId });
     }
 
-    const [timeline, events, artifacts] = await Promise.all([
+    const [steps, systemEvents, artifacts] = await Promise.all([
       this.eventRepository.listRunTimelineEntries(runId, { limit: 1000 }),
       this.eventRepository.listRunEvents(runId, { limit: 1000 }),
       this.artifactRepository.listRunArtifacts(runId),
@@ -34,8 +34,8 @@ export class RunQueryService {
 
     return {
       run,
-      timeline,
-      events,
+      steps,
+      systemEvents,
       artifacts,
     };
   }

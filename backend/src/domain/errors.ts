@@ -22,6 +22,12 @@ export class RequestValidationError extends AppError {
   }
 }
 
+export class ConflictError extends AppError {
+  constructor(message: string, details: Record<string, unknown> | null = null) {
+    super(message, 409, 'conflict', details);
+  }
+}
+
 export class AdapterExecutionError extends Error {
   constructor(
     message: string,

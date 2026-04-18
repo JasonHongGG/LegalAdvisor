@@ -12,3 +12,12 @@
   overflow-y: auto;
   height: 100vh;
 }
+
+.routeLoading {
+  display: flex;
+  min-height: calc(100vh - 80px);
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}

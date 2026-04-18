@@ -38,7 +38,7 @@ export function RunDetailPanel({
   onDeleteRun,
   onOpenPreview,
 }: RunDetailPanelProps) {
-  const [activeDetailTab, setActiveDetailTab] = useState<'timeline' | 'events'>('timeline');
+  const [activeDetailTab, setActiveDetailTab] = useState<'steps' | 'systemEvents'>('steps');
 
   if (!activeRun) {
     return <div className={styles.emptyPreview}>建立任務後，這裡會顯示詳細進度與輸出檔案。</div>;
@@ -114,32 +114,32 @@ export function RunDetailPanel({
             <div className={styles.workstreamHeader}>
               <div className={styles.workstreamHeaderTitle}>
                 <h4>執行明細</h4>
-                <span>{activeDetailTab === 'timeline' ? `${executionTimeline.length} 個步驟` : `${events.length} 筆事件`}</span>
+                <span>{activeDetailTab === 'steps' ? `${executionTimeline.length} 個步驟` : `${events.length} 筆事件`}</span>
               </div>
               <div className={styles.workstreamTabs} role="tablist" aria-label="執行明細檢視切換">
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={activeDetailTab === 'timeline'}
-                  className={clsx(styles.workstreamTab, activeDetailTab === 'timeline' && styles.workstreamTabActive)}
-                  onClick={() => setActiveDetailTab('timeline')}
+                  aria-selected={activeDetailTab === 'steps'}
+                  className={clsx(styles.workstreamTab, activeDetailTab === 'steps' && styles.workstreamTabActive)}
+                  onClick={() => setActiveDetailTab('steps')}
                 >
-                  步驟時間軸
+                  使用者步驟
                 </button>
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={activeDetailTab === 'events'}
-                  className={clsx(styles.workstreamTab, activeDetailTab === 'events' && styles.workstreamTabActive)}
-                  onClick={() => setActiveDetailTab('events')}
+                  aria-selected={activeDetailTab === 'systemEvents'}
+                  className={clsx(styles.workstreamTab, activeDetailTab === 'systemEvents' && styles.workstreamTabActive)}
+                  onClick={() => setActiveDetailTab('systemEvents')}
                 >
-                  原始事件紀錄
+                  系統事件
                 </button>
               </div>
             </div>
 
             <div className={styles.workstreamBody}>
-              {activeDetailTab === 'timeline'
+              {activeDetailTab === 'steps'
                 ? <RunTimeline steps={executionTimeline} embedded />
                 : <RunEventLog events={events} />}
             </div>

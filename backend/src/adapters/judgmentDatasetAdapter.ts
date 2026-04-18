@@ -1,11 +1,21 @@
 import { parse } from 'csv-parse/sync';
-import type { JudgmentDatasetTargetConfig } from '@legaladvisor/shared';
+import type { JudgmentDatasetTargetConfig, RunTargetConfig } from '@legaladvisor/shared';
 import type { AdapterContext, SourceAdapter } from './base.js';
 import { httpClient } from '../httpClient.js';
 import { normalizeWhitespace, toMarkdownHeading } from '../utils.js';
 
 export class JudgmentDatasetAdapter implements SourceAdapter {
   readonly sourceId = 'judicial-judgments' as const;
+
+  buildTargets(fieldValues: Record<string, string | number | boolean | null>): RunTargetConfig[] {
+    return [{
+      kind: 'judgment-dataset',
+      label: String(fieldValues.label),
+      fileSetId: Number(fieldValues.fileSetId),
+      top: typeof fieldValues.top === 'number' ? fieldValues.top : undefined,
+      skip: typeof fieldValues.skip === 'number' ? fieldValues.skip : undefined,
+    }];
+  }
 
   async run(context: AdapterContext) {
     const target = context.target as JudgmentDatasetTargetConfig;
@@ -17,12 +27,11 @@ export class JudgmentDatasetAdapter implements SourceAdapter {
       url.searchParams.set('skip', String(target.skip));
     }
 
-    await context.beginStage('fetching_detail', {
+    await context.observation.beginStage('fetching_detail', {
       progress: 10,
       message: '下載司法院開放資料中',
       sourceLocator: url.toString(),
     });
-    await context.emit('info', 'work-item-status', '開始下載裁判書開放資料。', { fileSetId: target.fileSetId });
 
     const response = await httpClient.get(url.toString(), { insecureTls: true });
     const contentType = response.headers['content-type'] ?? 'application/octet-stream';
@@ -51,7 +60,7 @@ export class JudgmentDatasetAdapter implements SourceAdapter {
         JSON.stringify(items.slice(0, 5), null, 2),
         '```',
       ].join('\n');
-      await context.beginStage('normalizing', { itemsTotal: items.length, itemsProcessed: items.length, progress: 70, message: `已正規化 ${items.length} 筆 JSON 資料` });
+      await context.observation.beginStage('normalizing', { itemsTotal: items.length, itemsProcessed: items.length, progress: 70, message: `已正規化 ${items.length} 筆 JSON 資料` });
     } else if (contentType.includes('csv') || contentType.includes('text/plain')) {
       const rows = parse(response.text(), { columns: true, skip_empty_lines: true }) as Array<Record<string, string>>;
       normalized = {
@@ -73,21 +82,21 @@ export class JudgmentDatasetAdapter implements SourceAdapter {
         JSON.stringify(rows.slice(0, 10), null, 2),
         '```',
       ].join('\n');
-      await context.beginStage('normalizing', { itemsTotal: rows.length, itemsProcessed: rows.length, progress: 70, message: `已正規化 ${rows.length} 筆 CSV 資料` });
+      await context.observation.beginStage('normalizing', { itemsTotal: rows.length, itemsProcessed: rows.length, progress: 70, message: `已正規化 ${rows.length} 筆 CSV 資料` });
     } else {
       throw new Error(`第一版僅支援 JSON/CSV 型 fileset，收到的 content-type 為 ${contentType}`);
     }
-    await context.beginStage('writing_output', { progress: 85, message: '寫入裁判資料快照中' });
+    await context.observation.beginStage('writing_output', { progress: 85, message: '寫入裁判資料快照中' });
 
-    await context.writeJsonArtifact('judgment_source_snapshot', `${target.label}-dataset`, normalized, {
+    await context.artifacts.writeJson('judgment_source_snapshot', `${target.label}-dataset`, normalized, {
       fileSetId: target.fileSetId,
       contentType,
     });
-    await context.writeMarkdownArtifact('judgment_document_snapshot', `${target.label}-summary`, normalizeWhitespace(markdownBody), {
+    await context.artifacts.writeMarkdown('judgment_document_snapshot', `${target.label}-summary`, normalizeWhitespace(markdownBody), {
       fileSetId: target.fileSetId,
       contentType,
     });
-    await context.complete({
+    await context.observation.complete({
       message: '完成裁判資料輸出',
     });
   }

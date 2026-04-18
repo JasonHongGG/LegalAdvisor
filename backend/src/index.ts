@@ -5,11 +5,11 @@ import type {
   ArtifactRepository,
   EventRepository,
   SourceRepository,
+  StageRepository,
   RunRepository,
 } from './application/ports/repositories.js';
 import type { RunQueuePort } from './application/ports/runtime.js';
 import { RunExecutionContextFactory } from './application/factories/runExecutionContextFactory.js';
-import { CrawlerApplicationFacade } from './application/services/crawlerApplicationFacade.js';
 import { LawArtifactRegistryService } from './application/services/lawArtifactRegistryService.js';
 import { SourceCatalogService } from './application/services/sourceCatalogService.js';
 import { RunActivityService } from './application/services/runActivityService.js';
@@ -17,13 +17,12 @@ import { RunCommandService } from './application/services/runCommandService.js';
 import { RunExecutionService } from './application/services/runExecutionService.js';
 import { RunLifecycleService } from './application/services/runLifecycleService.js';
 import { RunQueryService } from './application/services/runQueryService.js';
+import type { AppServices } from './compositionRoot.js';
 import { loadConfig } from './config.js';
-import { CrawlRepository } from './db/crawlRepository.js';
-import { InMemoryCrawlRepository } from './db/inMemoryCrawlRepository.js';
+import { PgSourceRepository, PgRunRepository, PgArtifactRepository, PgEventRepository, PgStageRepository } from './db/pg/index.js';
 import { createPool } from './db/pool.js';
 import { HttpSourceHealthProbe } from './infrastructure/catalog/httpSourceHealthProbe.js';
 import { SseRunStreamBroadcaster } from './infrastructure/stream/sseRunStreamBroadcaster.js';
-import { MemoryQueueService } from './services/memoryQueueService.js';
 import { QueueService } from './services/queueService.js';
 import { StorageService } from './services/storageService.js';
 
@@ -36,29 +35,23 @@ function createRuntime(): {
   runRepository: RunRepository;
   artifactRepository: ArtifactRepository;
   eventRepository: EventRepository;
+  stageRepository: StageRepository;
   runQueue: RunQueuePort;
   closeDatabase: () => Promise<void>;
 } {
-  if (!config.databaseWritesEnabled) {
-    const repository = new InMemoryCrawlRepository();
-    console.log('DATABASE_WRITE_MODE=disabled, using in-memory run state. No database writes will be performed.');
-    return {
-      sourceRepository: repository,
-      runRepository: repository,
-      artifactRepository: repository,
-      eventRepository: repository,
-      runQueue: new MemoryQueueService(),
-      closeDatabase: async () => {},
-    };
-  }
-
   const pool = createPool(config);
-  const repository = new CrawlRepository(pool, config.supabaseSchema);
+  const schema = config.supabaseSchema;
+  const sourceRepository = new PgSourceRepository(pool, schema);
+  const stageRepository = new PgStageRepository(pool, schema);
+  const artifactRepository = new PgArtifactRepository(pool, schema);
+  const eventRepository = new PgEventRepository(pool, schema, stageRepository);
+  const runRepository = new PgRunRepository(pool, schema, artifactRepository, eventRepository, stageRepository);
   return {
-    sourceRepository: repository,
-    runRepository: repository,
-    artifactRepository: repository,
-    eventRepository: repository,
+    sourceRepository,
+    runRepository,
+    artifactRepository,
+    eventRepository,
+    stageRepository,
     runQueue: new QueueService(config),
     closeDatabase: async () => {
       await pool.end();
@@ -73,7 +66,14 @@ const runLifecycleService = new RunLifecycleService(runtime.runRepository, runAc
 const sourceCatalogService = new SourceCatalogService(runtime.sourceRepository, sourceHealthProbe, runActivityService);
 const lawArtifactRegistry = new LawArtifactRegistryService(runtime.artifactRepository, storageService);
 const runQueryService = new RunQueryService(runtime.runRepository, runtime.artifactRepository, runtime.eventRepository);
-const runCommandService = new RunCommandService(runtime.runRepository, runtime.runQueue, runActivityService, runLifecycleService);
+const runCommandService = new RunCommandService(
+  runtime.sourceRepository,
+  runtime.runRepository,
+  runtime.runQueue,
+  runActivityService,
+  runLifecycleService,
+  sourceAdapterRegistry,
+);
 const runExecutionContextFactory = new RunExecutionContextFactory(
   runtime.runRepository,
   runtime.artifactRepository,
@@ -81,6 +81,7 @@ const runExecutionContextFactory = new RunExecutionContextFactory(
   runActivityService,
   lawArtifactRegistry,
   runLifecycleService,
+  runtime.stageRepository,
 );
 const runExecutionService = new RunExecutionService(
   runtime.runRepository,
@@ -90,19 +91,19 @@ const runExecutionService = new RunExecutionService(
   runLifecycleService,
   sourceAdapterRegistry,
 );
-const application = new CrawlerApplicationFacade(
+const services: AppServices = {
   sourceCatalogService,
   runCommandService,
   runExecutionService,
   runQueryService,
-  runStreamBroadcaster,
-);
+  runStreamPublisher: runStreamBroadcaster,
+};
 
 async function main() {
-  await application.bootstrap();
-  await runtime.runQueue.start((runId) => application.processRun(runId));
+  await sourceCatalogService.bootstrap();
+  await runtime.runQueue.start((runId) => runExecutionService.processRun(runId));
 
-  const app = createApp(application);
+  const app = createApp(services);
   const server = app.listen(config.port, () => {
     console.log(`LegalAdvisor API listening on http://localhost:${config.port}`);
   });

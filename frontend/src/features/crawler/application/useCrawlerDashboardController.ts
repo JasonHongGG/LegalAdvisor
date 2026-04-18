@@ -1,317 +1,96 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
-import type { CreateRunRequestDto, RunExecutionViewDto, RunSummaryDto, SourceId, SourceOverviewDto } from '@legaladvisor/shared';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import type { CreateRunRequestDto } from '@legaladvisor/shared';
 import { api } from '../../../lib/api';
 import { useArtifactPreview } from './useArtifactPreview';
-import { useRunStream } from './useRunStream';
-import { buildInitialFormValues, buildRunTarget } from '../domain/runComposer';
-import { buildExecutionTimeline } from '../domain/timeline';
-import type { FieldValue } from '../domain/types';
-
-const AUTO_RUN_SYNC_MS = 15_000;
-const AUTO_SOURCE_SYNC_MS = 60_000;
+import { useCrawlerCreateRunForm } from './useCrawlerCreateRunForm';
+import { useSources } from './useSources';
+import { useRunList } from './useRunList';
+import { useActiveRunView } from './useActiveRunView';
+import { useRunActions } from './useRunActions';
 
 export function useCrawlerDashboardController() {
-  const navigate = useNavigate();
-  const { runId: routeRunId } = useParams<{ runId?: string }>();
+  const { sources, syncSources } = useSources();
+  const runList = useRunList();
   const artifactPreview = useArtifactPreview();
-  const { resetPreview } = artifactPreview;
 
-  const [sources, setSources] = useState<SourceOverviewDto[]>([]);
-  const [runs, setRuns] = useState<RunSummaryDto[]>([]);
-  const [runViews, setRunViews] = useState<Record<string, RunExecutionViewDto>>({});
-  const [selectedSourceId, setSelectedSourceId] = useState<SourceId | null>(null);
-  const [formValues, setFormValues] = useState<Record<string, FieldValue>>({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [nowTimestamp, setNowTimestamp] = useState(() => Date.now());
-  const runViewsRef = useRef<Record<string, RunExecutionViewDto>>({});
+  const activeRunView = useActiveRunView({
+    runs: runList.runs,
+    activeRunId: runList.activeRunId,
+    onPatchRun: runList.patchRun,
+    onRefreshRuns: runList.refreshRuns,
+    onSyncSources: () => syncSources(false),
+  });
 
-  useEffect(() => {
-    runViewsRef.current = runViews;
-  }, [runViews]);
+  const { actionErrorMessage, setActionErrorMessage, handleRunAction, handleDeleteRun } = useRunActions({
+    onRefreshRuns: runList.refreshRuns,
+    onRefreshRunView: activeRunView.refreshRunView,
+    onRemoveRun: runList.removeRun,
+    onRemoveRunView: activeRunView.removeRunView,
+    onResetPreview: artifactPreview.resetPreview,
+  });
 
-  const selectedSource = useMemo(
-    () => sources.find((source) => source.id === selectedSourceId) ?? null,
-    [selectedSourceId, sources],
-  );
+  const [initErrorMessage, setInitErrorMessage] = useState<string | null>(null);
+  const errorMessage = actionErrorMessage ?? initErrorMessage;
 
-  const activeRun = useMemo(
-    () => runs.find((run) => run.id === routeRunId) ?? null,
-    [routeRunId, runs],
-  );
+  const submitCreateRun = useCallback(async (request: CreateRunRequestDto) => {
+    setInitErrorMessage(null);
+    setActionErrorMessage(null);
+    const createdRun = await api.createRun(request);
+    runList.upsertRun(createdRun);
+    runList.navigate(`/scraping/${createdRun.id}`);
+    await activeRunView.refreshRunView(createdRun.id, true);
+  }, [activeRunView, runList, setActionErrorMessage]);
 
-  const activeRunView = useMemo(
-    () => (activeRun ? runViews[activeRun.id] ?? null : null),
-    [activeRun, runViews],
-  );
-
-  const activeRunTimelineEntries = useMemo(
-    () => activeRunView?.timeline ?? [],
-    [activeRunView],
-  );
-
-  const activeRunArtifacts = useMemo(
-    () => activeRunView?.artifacts ?? null,
-    [activeRunView],
-  );
-
-  const activeRunEvents = useMemo(
-    () => activeRunView?.events ?? null,
-    [activeRunView],
-  );
-
-  const isRunViewLoading = useMemo(
-    () => Boolean(activeRun && !activeRunView),
-    [activeRun, activeRunView],
-  );
-
-  const activeErrorMessage = useMemo(() => {
-    if (!activeRun) {
-      return null;
-    }
-
-    const failedTimelineEntry = [...activeRunTimelineEntries].reverse().find((entry) => entry.stateTone === 'failed');
-    if (failedTimelineEntry?.title) {
-      return failedTimelineEntry.title;
-    }
-
-    if (['failed', 'partial_success'].includes(activeRun.status) && activeRun.summary) {
-      return activeRun.summary;
-    }
-
-    return null;
-  }, [activeRun, activeRunTimelineEntries]);
-
-  const executionTimeline = useMemo(
-    () => buildExecutionTimeline(activeRunTimelineEntries, nowTimestamp),
-    [activeRunTimelineEntries, nowTimestamp],
-  );
-
-  const syncSources = useCallback(async (includeHealthRefresh = false) => {
-    const nextSources = includeHealthRefresh
-      ? await api.refreshSources().catch(() => api.listSources())
-      : await api.listSources();
-
-    setSources(nextSources);
-    setSelectedSourceId((current) => {
-      if (current && nextSources.some((source) => source.id === current)) {
-        return current;
-      }
-
-      return nextSources[0]?.id ?? null;
-    });
-  }, []);
-
-  const refreshRuns = useCallback(async () => {
-    const nextRuns = await api.listRuns();
-    setRuns(nextRuns);
-
-    if (nextRuns.length === 0) {
-      if (routeRunId) {
-        navigate('/scraping', { replace: true });
-      }
-      return;
-    }
-
-    if (!routeRunId) {
-      navigate(`/scraping/${nextRuns[0].id}`, { replace: true });
-      return;
-    }
-
-    if (!nextRuns.some((run) => run.id === routeRunId)) {
-      navigate(`/scraping/${nextRuns[0].id}`, { replace: true });
-    }
-  }, [navigate, routeRunId]);
-
-  const loadRunView = useCallback(async (runId: string, force = false) => {
-    if (!force && runViewsRef.current[runId]) {
-      return runViewsRef.current[runId];
-    }
-
-    const nextView = await api.getRunView(runId);
-    setRunViews((current) => {
-      const next = { ...current, [runId]: nextView };
-      runViewsRef.current = next;
-      return next;
-    });
-    setRuns((current) => current.map((run) => (run.id === runId ? nextView.run : run)));
-    return nextView;
-  }, []);
-
-  const refreshRunView = useCallback(async (runId: string, force = false) => {
-    await loadRunView(runId, force);
-  }, [loadRunView]);
-
-  const refreshAll = useCallback(async () => {
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      await Promise.all([syncSources(true), refreshRuns()]);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '無法載入頁面資料');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [refreshRuns, syncSources]);
-
-  useEffect(() => {
-    setFormValues(buildInitialFormValues(selectedSource));
-  }, [selectedSource]);
-
-  useEffect(() => {
-    void refreshAll();
-  }, [refreshAll]);
-
-  useEffect(() => {
-    resetPreview();
-    if (routeRunId) {
-      void refreshRunView(routeRunId);
-    }
-  }, [refreshRunView, resetPreview, routeRunId]);
-
-  useRunStream({
-    activeRunId: routeRunId ?? null,
-    onRefreshRuns: refreshRuns,
-    onRefreshSources: async () => {
-      await syncSources(false);
-    },
-    onRefreshRunView: async (runId) => {
-      await refreshRunView(runId, true);
+  const createRunForm = useCrawlerCreateRunForm({
+    sources,
+    onSubmitCreateRun: submitCreateRun,
+    onSubmitError: (error) => {
+      setInitErrorMessage(error instanceof Error ? error.message : '建立任務失敗');
     },
   });
 
+  // Initial load
   useEffect(() => {
-    if (!activeRun || activeRun.finishedAt) {
-      return undefined;
-    }
-
-    const timer = window.setInterval(() => {
-      setNowTimestamp(Date.now());
-    }, 1000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [activeRun]);
-
-  useEffect(() => {
-    const runTimer = window.setInterval(() => {
-      void refreshRuns();
-      if (routeRunId) {
-        void refreshRunView(routeRunId, true);
+    const init = async () => {
+      runList.setIsLoading(true);
+      setInitErrorMessage(null);
+      try {
+        await Promise.all([syncSources(true), runList.refreshRuns()]);
+      } catch (error) {
+        setInitErrorMessage(error instanceof Error ? error.message : '無法載入頁面資料');
+      } finally {
+        runList.setIsLoading(false);
       }
-    }, AUTO_RUN_SYNC_MS);
-
-    const sourceTimer = window.setInterval(() => {
-      void syncSources(true).catch((error: unknown) => {
-        setErrorMessage(error instanceof Error ? error.message : '來源同步失敗');
-      });
-    }, AUTO_SOURCE_SYNC_MS);
-
-    return () => {
-      window.clearInterval(runTimer);
-      window.clearInterval(sourceTimer);
     };
-  }, [refreshRunView, refreshRuns, routeRunId, syncSources]);
-
-  const handleCreateRun = useCallback(async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!selectedSourceId) {
-      return;
-    }
-
-    setIsSubmitting(true);
-    setErrorMessage(null);
-
-    try {
-      const request: CreateRunRequestDto = {
-        sourceId: selectedSourceId,
-        targets: [buildRunTarget(selectedSourceId, formValues)],
-      };
-      const createdRun = await api.createRun(request);
-      setRuns((current) => [createdRun, ...current.filter((run) => run.id !== createdRun.id)]);
-      navigate(`/scraping/${createdRun.id}`);
-      await refreshRunView(createdRun.id, true);
-      setFormValues(buildInitialFormValues(selectedSource));
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '建立任務失敗');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [formValues, navigate, refreshRunView, selectedSource, selectedSourceId]);
-
-  const handleRunAction = useCallback(async (runId: string, action: 'pause' | 'resume' | 'cancel' | 'retry') => {
-    setErrorMessage(null);
-
-    try {
-      if (action === 'pause') {
-        await api.pauseRun(runId);
-      } else if (action === 'resume') {
-        await api.resumeRun(runId);
-      } else if (action === 'cancel') {
-        await api.cancelRun(runId);
-      } else {
-        await api.retryFailedRunItems(runId);
-      }
-
-      await Promise.all([refreshRuns(), refreshRunView(runId, true)]);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '任務操作失敗');
-    }
-  }, [refreshRunView, refreshRuns]);
-
-  const handleDeleteRun = useCallback(async (runId: string) => {
-    setErrorMessage(null);
-
-    try {
-      await api.deleteRun(runId);
-      setRunViews((current) => {
-        const next = { ...current };
-        delete next[runId];
-        runViewsRef.current = next;
-        return next;
-      });
-      setRuns((current) => current.filter((run) => run.id !== runId));
-      resetPreview();
-      await refreshRuns();
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '刪除任務失敗');
-    }
-  }, [refreshRuns, resetPreview]);
-
-  const updateFormValue = useCallback((name: string, value: FieldValue) => {
-    setFormValues((current) => ({ ...current, [name]: value }));
-  }, []);
+    void init();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectRun = useCallback((runId: string) => {
-    navigate(`/scraping/${runId}`);
-    void refreshRunView(runId);
-  }, [navigate, refreshRunView]);
+    runList.selectRun(runId);
+    void activeRunView.refreshRunView(runId);
+  }, [runList, activeRunView]);
 
   return {
-    isLoading,
-    isSubmitting,
+    isLoading: runList.isLoading,
+    isSubmitting: createRunForm.isSubmitting,
     errorMessage,
     sources,
-    selectedSource,
-    selectedSourceId,
-    selectSource: setSelectedSourceId,
-    formValues,
-    updateFormValue,
-    handleCreateRun,
-    runs,
-    activeRunId: routeRunId ?? null,
-    activeRun,
-    activeRunArtifacts,
-    activeRunEvents,
-    isRunViewLoading,
-    activeErrorMessage,
-    executionTimeline,
-    nowTimestamp,
+    selectedSource: createRunForm.selectedSource,
+    selectedSourceId: createRunForm.selectedSourceId,
+    selectSource: createRunForm.selectSource,
+    formValues: createRunForm.formValues,
+    fieldErrors: createRunForm.fieldErrors,
+    updateFormValue: createRunForm.updateFormValue,
+    handleCreateRun: createRunForm.handleCreateRun,
+    runs: runList.runs,
+    activeRunId: runList.activeRunId,
+    activeRun: activeRunView.activeRun,
+    activeRunArtifacts: activeRunView.activeRunArtifacts,
+    activeRunEvents: activeRunView.activeRunEvents,
+    isRunViewLoading: activeRunView.isRunViewLoading,
+    activeErrorMessage: activeRunView.activeErrorMessage,
+    executionTimeline: activeRunView.executionTimeline,
+    nowTimestamp: activeRunView.nowTimestamp,
     selectRun,
     handleRunAction,
     handleDeleteRun,

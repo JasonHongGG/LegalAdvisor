@@ -8,7 +8,6 @@ import type {
   RunTargetDto as CrawlTaskTarget,
   RunTimelineEntryDto as CrawlTimelineEntry,
   WorkItemDto as CrawlWorkItem,
-  CreateRunRequestDto as CreateTaskRequest,
   SourceId,
   RunStatus,
 } from '@legaladvisor/shared';
@@ -19,14 +18,18 @@ import type {
   CanonicalLawDocumentInput,
   CanonicalLawVersionInput,
   CanonicalLawVersionMatch,
+  CreateRunRecordInput,
   EnsureArtifactContentInput,
   EventRepository,
   InsertArtifactInput,
   InsertEventInput,
+  InsertStageInput,
   LinkedRunArtifactInput,
   SourceHealthPatch,
   SourceRepository,
+  StageRepository,
   RunRepository,
+  UpdateStageInput,
 } from '../application/ports/repositories.js';
 import type { SourceCatalogEntry } from '../domain/sourceCatalog.js';
 import { createId } from '../utils.js';
@@ -105,7 +108,7 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-export class InMemoryCrawlRepository implements SourceRepository, RunRepository, ArtifactRepository, EventRepository {
+export class InMemoryCrawlRepository implements SourceRepository, RunRepository, ArtifactRepository, EventRepository, StageRepository {
   private readonly sources = new Map<SourceId, CrawlSourceRecord>();
   private readonly runs = new Map<string, InternalRunState>();
   private readonly workItemToRun = new Map<string, string>();
@@ -118,6 +121,8 @@ export class InMemoryCrawlRepository implements SourceRepository, RunRepository,
   private readonly canonicalLawVersions = new Map<string, CanonicalLawVersionRecord>();
   private readonly canonicalLawVersionKeys = new Map<string, string>();
   private nextEventSequenceNo = 1;
+  private stages: Map<string, { id: string; runId: string; workItemId: string; stageName: string; status: string; message: string; progress: number; itemsProcessed: number; itemsTotal: number; sourceLocator: string | null; sequenceNo: number; startedAt: string; endedAt: string | null }> = new Map();
+  private nextStageSequenceNo = 1;
 
   async ensureSourceCatalog(catalog: SourceCatalogEntry[]) {
     for (const source of catalog) {
@@ -152,7 +157,7 @@ export class InMemoryCrawlRepository implements SourceRepository, RunRepository,
     source.lastErrorMessage = patch.lastErrorMessage ?? null;
   }
 
-  async createRun(input: CreateTaskRequest) {
+  async createRun(input: CreateRunRecordInput) {
     const source = this.requireSource(input.sourceId);
     const createdAt = nowIso();
     const runId = createId();
@@ -433,11 +438,8 @@ export class InMemoryCrawlRepository implements SourceRepository, RunRepository,
       .map((event) => clone(event));
   }
 
-  async listRunTimelineEntries(runId: string, options?: { afterSequenceNo?: number; limit?: number }) {
-    const events = await this.listRunEvents(runId, options);
-    return events
-      .filter((event) => event.eventType !== 'log')
-      .map((event) => this.mapTimelineEntry(event));
+  async listRunTimelineEntries(runId: string, _options?: { afterSequenceNo?: number; limit?: number }) {
+    return this.listRunStages(runId);
   }
 
   async ensureArtifactContent(input: EnsureArtifactContentInput) {
@@ -749,45 +751,91 @@ export class InMemoryCrawlRepository implements SourceRepository, RunRepository,
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
-  private mapTimelineEntry(event: CrawlEvent): CrawlTimelineEntry {
-    const status = typeof event.details.status === 'string' ? event.details.status : null;
-    const label = typeof event.details.label === 'string' ? event.details.label : null;
-    const itemsProcessed = typeof event.details.itemsProcessed === 'number' ? event.details.itemsProcessed : null;
-    const itemsTotal = typeof event.details.itemsTotal === 'number' ? event.details.itemsTotal : null;
+  async insertStage(input: InsertStageInput) {
+    const sequenceNo = this.nextStageSequenceNo++;
+    this.stages.set(input.id, {
+      id: input.id,
+      runId: input.runId,
+      workItemId: input.workItemId,
+      stageName: input.stageName,
+      status: input.status,
+      message: input.message ?? '',
+      progress: input.progress ?? 0,
+      itemsProcessed: input.itemsProcessed ?? 0,
+      itemsTotal: input.itemsTotal ?? 0,
+      sourceLocator: input.sourceLocator ?? null,
+      sequenceNo,
+      startedAt: input.startedAt ?? nowIso(),
+      endedAt: null,
+    });
+  }
 
-    let stateTone: CrawlTimelineEntry['stateTone'] = 'done';
-    let stateLabel = '完成';
-    if (status === 'failed' || event.level === 'error') {
+  async updateStage(stageId: string, patch: UpdateStageInput) {
+    const stage = this.stages.get(stageId);
+    if (!stage) return;
+    if (patch.status !== undefined) stage.status = patch.status;
+    if (patch.message !== undefined) stage.message = patch.message;
+    if (patch.progress !== undefined) stage.progress = patch.progress;
+    if (patch.itemsProcessed !== undefined) stage.itemsProcessed = patch.itemsProcessed;
+    if (patch.itemsTotal !== undefined) stage.itemsTotal = patch.itemsTotal;
+    if (patch.sourceLocator !== undefined) stage.sourceLocator = patch.sourceLocator;
+    if (patch.endedAt !== undefined) stage.endedAt = patch.endedAt;
+  }
+
+  async getActiveStage(workItemId: string) {
+    let latest: { id: string; stageName: string; sequenceNo: number } | null = null;
+    for (const stage of this.stages.values()) {
+      if (stage.workItemId === workItemId && stage.endedAt === null) {
+        if (!latest || stage.sequenceNo > latest.sequenceNo) {
+          latest = { id: stage.id, stageName: stage.stageName, sequenceNo: stage.sequenceNo };
+        }
+      }
+    }
+    return latest ? { id: latest.id, stageName: latest.stageName } : null;
+  }
+
+  async closeActiveStage(workItemId: string, endedAt: string) {
+    for (const stage of this.stages.values()) {
+      if (stage.workItemId === workItemId && stage.endedAt === null) {
+        stage.status = 'completed';
+        stage.endedAt = endedAt;
+      }
+    }
+  }
+
+  async listRunStages(runId: string) {
+    return [...this.stages.values()]
+      .filter((stage) => stage.runId === runId)
+      .sort((a, b) => a.sequenceNo - b.sequenceNo)
+      .map((stage) => this.mapStageToTimelineEntry(stage));
+  }
+
+  private mapStageToTimelineEntry(stage: { id: string; runId: string; workItemId: string; stageName: string; status: string; message: string; progress: number; itemsProcessed: number; itemsTotal: number; sourceLocator: string | null; sequenceNo: number; startedAt: string; endedAt: string | null }): CrawlTimelineEntry {
+    let stateTone: CrawlTimelineEntry['stateTone'] = 'running';
+    let stateLabel = '進行中';
+    if (stage.status === 'completed') {
+      stateTone = 'done';
+      stateLabel = '完成';
+    } else if (stage.status === 'failed') {
       stateTone = 'failed';
       stateLabel = '失敗';
-    } else if (status === 'cancelled') {
-      stateTone = 'cancelled';
-      stateLabel = '已取消';
-    } else if (status && !['done', 'completed', 'partial_success', 'failed', 'cancelled', 'skipped'].includes(status)) {
-      stateTone = 'running';
-      stateLabel = '進行中';
-    } else if (event.eventType === 'work-item-progress') {
-      stateTone = 'running';
-      stateLabel = '進行中';
     }
 
-    const progressSuffix = itemsProcessed !== null && itemsTotal !== null && itemsTotal > 0
-      ? `（${itemsProcessed}/${itemsTotal}）`
-      : '';
+    const progressSuffix = stage.itemsTotal > 0 ? `（${stage.itemsProcessed}/${stage.itemsTotal}）` : '';
 
     return {
-      id: event.id,
-      runId: event.runId,
-      workItemId: event.workItemId,
-      sequenceNo: event.sequenceNo,
-      eventType: event.eventType,
-      level: event.level,
-      title: event.eventType === 'work-item-progress' ? `${event.message}${progressSuffix}` : event.message,
-      context: label ? `項目：${label}` : '主任務',
+      id: stage.id,
+      runId: stage.runId,
+      workItemId: stage.workItemId,
+      sequenceNo: stage.sequenceNo,
+      eventType: 'work-item-status',
+      level: stage.status === 'failed' ? 'error' : 'info',
+      title: `${stage.message}${progressSuffix}`,
+      context: `階段：${stage.stageName}`,
       stateLabel,
       stateTone,
-      occurredAt: event.occurredAt,
-      endedAt: ['done', 'completed', 'partial_success', 'failed', 'cancelled', 'skipped'].includes(status ?? '') ? event.occurredAt : null,
+      occurredAt: stage.startedAt,
+      endedAt: stage.endedAt,
     };
   }
 

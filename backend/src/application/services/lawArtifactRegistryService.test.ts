@@ -1,25 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { InMemoryCrawlRepository } from '../../db/inMemoryCrawlRepository.js';
+import { createInMemoryRepositories } from '../../db/memory/index.js';
 import { sourceRegistry } from '../../infrastructure/catalog/sourceRegistry.js';
 import { sha256 } from '../../utils.js';
 import { LawArtifactRegistryService } from './lawArtifactRegistryService.js';
 
 describe('LawArtifactRegistryService', () => {
   it('reuses an existing canonical law version when the normalized law content is unchanged', async () => {
-    const repository = new InMemoryCrawlRepository();
-    await repository.ensureSourceCatalog(sourceRegistry.list());
+    const repos = createInMemoryRepositories();
+    await repos.sourceRepository.ensureSourceCatalog(sourceRegistry.list());
 
-    const firstTaskId = await repository.createRun({
+    const firstTaskId = await repos.runRepository.createRun({
       sourceId: 'moj-laws',
       targets: [{ kind: 'law', label: '民法', query: '民法', exactMatch: true }],
     });
-    const secondTaskId = await repository.createRun({
+    const secondTaskId = await repos.runRepository.createRun({
       sourceId: 'moj-laws',
       targets: [{ kind: 'law', label: '民法', query: '民法', exactMatch: true }],
     });
 
-    const firstTask = await repository.getRunDetail(firstTaskId);
-    const secondTask = await repository.getRunDetail(secondTaskId);
+    const firstTask = await repos.runRepository.getRunDetail(firstTaskId);
+    const secondTask = await repos.runRepository.getRunDetail(secondTaskId);
     if (!firstTask || !secondTask) {
       throw new Error('Expected both in-memory tasks to exist.');
     }
@@ -56,7 +56,7 @@ describe('LawArtifactRegistryService', () => {
       },
     };
 
-    const service = new LawArtifactRegistryService(repository, storage);
+    const service = new LawArtifactRegistryService(repos.artifactRepository, storage);
     const lawInput = {
       sourceId: 'moj-laws' as const,
       query: '民法',
@@ -95,8 +95,8 @@ describe('LawArtifactRegistryService', () => {
     expect(secondResult.contentStatus).toBe('reused');
     expect(storageWrites).toHaveLength(4);
 
-    const firstDetail = await repository.getRunDetail(firstTask.id);
-    const secondDetail = await repository.getRunDetail(secondTask.id);
+    const firstDetail = await repos.runRepository.getRunDetail(firstTask.id);
+    const secondDetail = await repos.runRepository.getRunDetail(secondTask.id);
     if (!firstDetail || !secondDetail) {
       throw new Error('Expected persisted run details to exist.');
     }

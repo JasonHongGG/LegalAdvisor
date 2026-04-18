@@ -15,7 +15,7 @@ const EVENT_LEVEL_LABELS = {
 
 export function RunEventLog({ events }: RunEventLogProps) {
   if (events.length === 0) {
-    return <div className={styles.emptyHint}>尚無原始事件紀錄。</div>;
+    return <div className={styles.emptyHint}>尚無系統事件。</div>;
   }
 
   return (

@@ -2,13 +2,15 @@ import PgBoss from 'pg-boss';
 import type { RunQueuePort } from '../application/ports/runtime.js';
 import type { AppConfig } from '../config.js';
 
+const RUN_QUEUE_NAME = 'crawl-run';
+
 export class QueueService implements RunQueuePort {
   private readonly boss: PgBoss;
   private started = false;
 
   constructor(config: AppConfig) {
     if (!config.supabaseDbUrl) {
-      throw new Error('SUPABASE_DB_URL is required when DATABASE_WRITE_MODE=enabled.');
+      throw new Error('SUPABASE_DB_URL is required for the database-backed queue runtime.');
     }
 
     this.boss = new PgBoss({
@@ -27,7 +29,8 @@ export class QueueService implements RunQueuePort {
       return;
     }
     await this.boss.start();
-    await this.boss.work('crawl-run', async (jobs) => {
+    await this.boss.createQueue(RUN_QUEUE_NAME);
+    await this.boss.work(RUN_QUEUE_NAME, async (jobs) => {
       for (const job of jobs) {
         const data = job.data as { runId?: string };
         if (!data.runId) {
@@ -40,7 +43,10 @@ export class QueueService implements RunQueuePort {
   }
 
   async enqueueTask(runId: string) {
-    await this.boss.send('crawl-run', { runId });
+    const jobId = await this.boss.send(RUN_QUEUE_NAME, { runId });
+    if (!jobId) {
+      throw new Error(`Queue enqueue returned no job id for run ${runId}`);
+    }
   }
 
   async stop() {

@@ -11,6 +11,7 @@ import type { FieldValue } from '../../features/crawler/domain/types';
 type RunComposerProps = {
   source: SourceOverviewDto | null;
   formValues: Record<string, FieldValue>;
+  fieldErrors: Record<string, string>;
   isSubmitting: boolean;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onFieldChange: (name: string, value: FieldValue) => void;
@@ -72,6 +73,7 @@ const COMMON_LAW_TAGS = [
 export function RunComposer({
   source,
   formValues,
+  fieldErrors,
   isSubmitting,
   onSubmit,
   onFieldChange,
@@ -108,13 +110,14 @@ export function RunComposer({
                     )}
                   </span>
                   <input
-                    className={styles.input}
+                    className={clsx(styles.input, fieldErrors[field.name] && styles.inputInvalid)}
                     type={field.type}
                     required={field.required}
                     placeholder={field.placeholder}
                     value={String(formValues[field.name] ?? '')}
                     onChange={(event) => onFieldChange(field.name, event.target.value)}
                   />
+                  {fieldErrors[field.name] && <span className={styles.fieldError}>{fieldErrors[field.name]}</span>}
                   {source.id === 'moj-laws' && field.name === 'query' && (
                     <ScrollableRail
                       orientation="horizontal"
@@ -147,7 +150,11 @@ export function RunComposer({
                   <>
                     <button
                       type="button"
-                      className={clsx(styles.compactToggle, !!formValues.exactMatch && styles.compactToggleActive)}
+                      className={clsx(
+                        styles.compactToggle,
+                        !!formValues.exactMatch && styles.compactToggleActive,
+                        fieldErrors.exactMatch && styles.inputInvalid,
+                      )}
                       onClick={() => onFieldChange('exactMatch', !formValues.exactMatch)}
                     >
                       <span className={clsx(styles.compactTrack, !!formValues.exactMatch && styles.compactTrackActive)}>
@@ -164,6 +171,7 @@ export function RunComposer({
                         </span>
                       </Tooltip>
                     )}
+                    {fieldErrors.exactMatch && <span className={styles.fieldError}>{fieldErrors.exactMatch}</span>}
                   </>
                 )}
               </div>

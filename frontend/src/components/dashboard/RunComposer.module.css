@@ -146,6 +146,16 @@
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
 }
 
+.inputInvalid {
+  border-color: rgba(248, 113, 113, 0.55);
+}
+
+.fieldError {
+  color: #fda4af;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 .tagRail {
   position: relative;
   overflow-x: auto;

@@ -1,9 +1,11 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { RunDetailPanel } from './RunDetailPanel';
 
 describe('RunDetailPanel', () => {
-  it('switches between timeline and raw event tabs without moving the artifact panel', () => {
+  it('switches between user steps and system event tabs without moving the artifact panel', () => {
     render(
       <RunDetailPanel
         activeRun={{
@@ -35,23 +37,25 @@ describe('RunDetailPanel', () => {
             createdAt: '2026-04-16T00:00:00.000Z',
           }],
         }}
-        artifacts={[{
-          id: 'artifact-1',
-          runId: 'run-1',
-          workItemId: 'work-item-1',
-          artifactKind: 'law_article_snapshot',
-          artifactRole: 'machine-source',
-          contentStatus: 'new',
-          canonicalDocumentId: 'doc-1',
-          canonicalVersionId: 'ver-1',
-          fileName: 'civil-code-articles.json',
-          contentType: 'application/json',
-          sizeBytes: 128,
-          hashSha256: 'hash-1',
-          schemaVersion: '1.0.0',
-          metadata: {},
-          createdAt: '2026-04-16T00:05:00.000Z',
-        }]}
+        artifacts={[
+          {
+            id: 'artifact-1',
+            runId: 'run-1',
+            workItemId: 'work-item-1',
+            artifactKind: 'law_article_snapshot',
+            artifactRole: 'machine-source',
+            contentStatus: 'new',
+            canonicalDocumentId: 'doc-1',
+            canonicalVersionId: 'ver-1',
+            fileName: 'civil-code-articles.json',
+            contentType: 'application/json',
+            sizeBytes: 128,
+            hashSha256: 'hash-1',
+            schemaVersion: '1.0.0',
+            metadata: {},
+            createdAt: '2026-04-16T00:05:00.000Z',
+          },
+        ]}
         events={[
           {
             id: 'evt-1',
@@ -89,13 +93,13 @@ describe('RunDetailPanel', () => {
       />
     );
 
-    expect(screen.getByRole('tab', { name: '步驟時間軸' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: '使用者步驟' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('工作器開始執行任務。')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('tab', { name: '原始事件紀錄' }));
+    fireEvent.click(screen.getByRole('tab', { name: '系統事件' }));
 
-    expect(screen.getByRole('tab', { name: '原始事件紀錄' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: '系統事件' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('#1')).toBeInTheDocument();
     expect(screen.getByText('civil-code-articles.json')).toBeInTheDocument();
   });
-  });
+});

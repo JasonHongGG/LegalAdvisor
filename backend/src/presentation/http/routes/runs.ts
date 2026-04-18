@@ -1,19 +1,20 @@
 import { Router } from 'express';
 import { createRunRequestSchema } from '@legaladvisor/shared';
-import type { CrawlerApplicationFacade } from '../../../application/services/crawlerApplicationFacade.js';
+import type { AppServices } from '../../../compositionRoot.js';
 import { createAttachmentDisposition } from '../../../utils.js';
 import { validateBody } from '../middleware/validate.js';
 
-export function createRunRouter(application: CrawlerApplicationFacade) {
+export function createRunRouter(services: Pick<AppServices, 'runCommandService' | 'runQueryService' | 'runStreamPublisher'>) {
+  const { runCommandService, runQueryService, runStreamPublisher } = services;
   const router = Router();
 
   router.get('/stream', (_request, response) => {
-    application.subscribeToRunStream(response);
+    runStreamPublisher.subscribe(response);
   });
 
   router.get('/', async (_request, response, next) => {
     try {
-      response.json(await application.listRuns());
+      response.json(await runQueryService.listRuns());
     } catch (error) {
       next(error);
     }
@@ -21,7 +22,7 @@ export function createRunRouter(application: CrawlerApplicationFacade) {
 
   router.post('/', validateBody(createRunRequestSchema), async (request, response, next) => {
     try {
-      const run = await application.createRun(request.body);
+      const run = await runCommandService.createRun(request.body);
       response.status(201).json(run);
     } catch (error) {
       next(error);
@@ -30,7 +31,7 @@ export function createRunRouter(application: CrawlerApplicationFacade) {
 
   router.get('/:runId', async (request, response, next) => {
     try {
-      response.json(await application.getRunDetail(request.params.runId));
+      response.json(await runQueryService.getRunDetail(request.params.runId));
     } catch (error) {
       next(error);
     }
@@ -38,7 +39,7 @@ export function createRunRouter(application: CrawlerApplicationFacade) {
 
   router.get('/:runId/view', async (request, response, next) => {
     try {
-      response.json(await application.getRunExecutionView(request.params.runId));
+      response.json(await runQueryService.getRunExecutionView(request.params.runId));
     } catch (error) {
       next(error);
     }
@@ -46,7 +47,7 @@ export function createRunRouter(application: CrawlerApplicationFacade) {
 
   router.post('/:runId/pause', async (request, response, next) => {
     try {
-      response.json(await application.pauseRun(request.params.runId));
+      response.json(await runCommandService.pauseRun(request.params.runId));
     } catch (error) {
       next(error);
     }
@@ -54,7 +55,7 @@ export function createRunRouter(application: CrawlerApplicationFacade) {
 
   router.post('/:runId/resume', async (request, response, next) => {
     try {
-      response.json(await application.resumeRun(request.params.runId));
+      response.json(await runCommandService.resumeRun(request.params.runId));
     } catch (error) {
       next(error);
     }
@@ -62,7 +63,7 @@ export function createRunRouter(application: CrawlerApplicationFacade) {
 
   router.post('/:runId/cancel', async (request, response, next) => {
     try {
-      response.json(await application.cancelRun(request.params.runId));
+      response.json(await runCommandService.cancelRun(request.params.runId));
     } catch (error) {
       next(error);
     }
@@ -70,7 +71,7 @@ export function createRunRouter(application: CrawlerApplicationFacade) {
 
   router.delete('/:runId', async (request, response, next) => {
     try {
-      await application.deleteRun(request.params.runId);
+      await runCommandService.deleteRun(request.params.runId);
       response.status(204).send();
     } catch (error) {
       next(error);
@@ -79,7 +80,7 @@ export function createRunRouter(application: CrawlerApplicationFacade) {
 
   router.post('/:runId/retry-failed', async (request, response, next) => {
     try {
-      response.json(await application.retryFailedRunItems(request.params.runId));
+      response.json(await runCommandService.retryFailedRunItems(request.params.runId));
     } catch (error) {
       next(error);
     }
@@ -87,7 +88,7 @@ export function createRunRouter(application: CrawlerApplicationFacade) {
 
   router.get('/:runId/manifest/download', async (request, response, next) => {
     try {
-      const manifest = await application.downloadManifest(request.params.runId);
+      const manifest = await runQueryService.downloadManifest(request.params.runId);
       response.setHeader('Content-Type', manifest.contentType);
       response.setHeader('Content-Disposition', createAttachmentDisposition(manifest.fileName));
       response.send(manifest.buffer);
@@ -98,7 +99,7 @@ export function createRunRouter(application: CrawlerApplicationFacade) {
 
   router.get('/:runId/artifacts/archive/download', async (request, response, next) => {
     try {
-      const archive = await application.downloadRunArchive(request.params.runId);
+      const archive = await runQueryService.downloadRunArchive(request.params.runId);
       response.setHeader('Content-Type', archive.contentType);
       response.setHeader('Content-Disposition', createAttachmentDisposition(archive.fileName));
       response.send(archive.buffer);

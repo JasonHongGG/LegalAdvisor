@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import type { JudicialListTargetConfig } from '@legaladvisor/shared';
+import type { JudicialListTargetConfig, RunTargetConfig } from '@legaladvisor/shared';
 import type { AdapterContext, SourceAdapter } from './base.js';
 import { httpClient } from '../httpClient.js';
 import { normalizeWhitespace, toMarkdownHeading } from '../utils.js';
@@ -62,13 +62,22 @@ function extractDetailContent(url: string, html: string) {
 export class JudicialSiteAdapter implements SourceAdapter {
   readonly sourceId = 'judicial-sites' as const;
 
+  buildTargets(fieldValues: Record<string, string | number | boolean | null>): RunTargetConfig[] {
+    return [{
+      kind: 'judicial-list',
+      label: String(fieldValues.label),
+      startUrl: String(fieldValues.startUrl),
+      maxPages: Number(fieldValues.maxPages),
+    }];
+  }
+
   async run(context: AdapterContext) {
     const target = context.target as JudicialListTargetConfig;
     const items: Array<{ title: string; link: string | null; date: string | null; content: string }> = [];
     let currentUrl: string | null = target.startUrl;
     let page = 0;
 
-    await context.beginStage('fetching_index', {
+    await context.observation.beginStage('fetching_index', {
       progress: 5,
       message: '開始抓取司法院列表頁',
       sourceLocator: target.startUrl,
@@ -78,10 +87,9 @@ export class JudicialSiteAdapter implements SourceAdapter {
 
     while (currentUrl && page < target.maxPages) {
       page += 1;
-      await context.emit('info', 'work-item-status', `抓取列表頁 ${page}`, { url: currentUrl });
       const pageResponse = await httpClient.get(currentUrl, { insecureTls: true });
       const { entries, nextPageUrl } = extractPageEntries(currentUrl, pageResponse.text());
-      await context.beginStage('fetching_detail', {
+      await context.observation.beginStage('fetching_detail', {
         progress: Math.min(30 + page * 10, 60),
         message: `列表頁 ${page} 找到 ${entries.length} 筆候選資料`,
         cursor: { page, currentUrl, nextPageUrl },
@@ -96,7 +104,7 @@ export class JudicialSiteAdapter implements SourceAdapter {
           ...entry,
           content: extractDetailContent(entry.link, detailResponse.text()),
         });
-        await context.advance({
+        await context.observation.advance({
           itemsProcessed: items.length,
           itemsTotal: items.length,
           message: `已抓取 ${entry.title}`,
@@ -132,21 +140,21 @@ export class JudicialSiteAdapter implements SourceAdapter {
       ]),
     ].join('\n');
 
-    await context.beginStage('writing_output', {
+    await context.observation.beginStage('writing_output', {
       progress: 85,
       message: '寫入補充資料快照中',
       itemsTotal: items.length,
       itemsProcessed: items.length,
     });
-    await context.writeJsonArtifact('judicial_site_snapshot', `${target.label}-snapshot`, payload, {
+    await context.artifacts.writeJson('judicial_site_snapshot', `${target.label}-snapshot`, payload, {
       pages: page,
       items: items.length,
     });
-    await context.writeMarkdownArtifact('judicial_site_markdown', `${target.label}-summary`, markdown, {
+    await context.artifacts.writeMarkdown('judicial_site_markdown', `${target.label}-summary`, markdown, {
       pages: page,
       items: items.length,
     });
-    await context.complete({
+    await context.observation.complete({
       message: `完成 ${items.length} 筆司法院補充資料輸出`,
       itemsProcessed: items.length,
       itemsTotal: items.length,

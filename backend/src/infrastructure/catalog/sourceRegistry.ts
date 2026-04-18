@@ -14,9 +14,9 @@ const catalog: SourceCatalogEntry[] = [
     capabilities: ['health-check', 'crawl-law-archive', 'json-output', 'markdown-output'],
     recommendedConcurrency: 1,
     runBuilderFields: [
-      { name: 'label', label: '任務名稱', type: 'text', required: true, placeholder: '例如：民法' },
-      { name: 'query', label: '法規名稱或關鍵字', type: 'text', required: true, placeholder: '例如：民法' },
-      { name: 'exactMatch', label: '精準比對名稱', type: 'checkbox', required: false, description: '僅接受完整相同的法規名稱。' },
+      { name: 'label', label: '任務名稱', type: 'text', required: true, placeholder: '例如：民法', validation: { minLength: 1, maxLength: 120 } },
+      { name: 'query', label: '法規名稱或關鍵字', type: 'text', required: true, placeholder: '例如：民法', validation: { minLength: 1, maxLength: 120 } },
+      { name: 'exactMatch', label: '精準比對名稱', type: 'checkbox', required: false, defaultValue: false, description: '僅接受完整相同的法規名稱。' },
     ],
   },
   {
@@ -32,9 +32,9 @@ const catalog: SourceCatalogEntry[] = [
     capabilities: ['health-check', 'crawl-html-list', 'json-output', 'markdown-output'],
     recommendedConcurrency: 1,
     runBuilderFields: [
-      { name: 'label', label: '任務名稱', type: 'text', required: true, placeholder: '例如：本會公告' },
-      { name: 'startUrl', label: '起始列表網址', type: 'url', required: true, placeholder: 'https://www.judicial.gov.tw/tw/lp-1724-1.html' },
-      { name: 'maxPages', label: '最多抓取頁數', type: 'number', required: true, placeholder: '3', description: '第一版建議先小批次測試。' },
+      { name: 'label', label: '任務名稱', type: 'text', required: true, placeholder: '例如：本會公告', validation: { minLength: 1, maxLength: 120 } },
+      { name: 'startUrl', label: '起始列表網址', type: 'url', required: true, placeholder: 'https://www.judicial.gov.tw/tw/lp-1724-1.html', validation: { url: true } },
+      { name: 'maxPages', label: '最多抓取頁數', type: 'number', required: true, defaultValue: 3, placeholder: '3', description: '第一版建議先小批次測試。', validation: { integer: true, min: 1, max: 50 } },
     ],
   },
   {
@@ -50,10 +50,10 @@ const catalog: SourceCatalogEntry[] = [
     capabilities: ['health-check', 'download-fileset', 'json-output', 'markdown-output'],
     recommendedConcurrency: 1,
     runBuilderFields: [
-      { name: 'label', label: '任務名稱', type: 'text', required: true, placeholder: '例如：最高法院民事資料集' },
-      { name: 'fileSetId', label: 'Fileset Id', type: 'number', required: true, placeholder: '1038', description: '可由司法院開放資料平台查得。第一版優先支援 JSON/CSV 檔型 fileset。' },
-      { name: 'top', label: '取得筆數上限', type: 'number', required: false, placeholder: '50' },
-      { name: 'skip', label: '跳過筆數', type: 'number', required: false, placeholder: '0' },
+      { name: 'label', label: '任務名稱', type: 'text', required: true, placeholder: '例如：最高法院民事資料集', validation: { minLength: 1, maxLength: 120 } },
+      { name: 'fileSetId', label: 'Fileset Id', type: 'number', required: true, placeholder: '1038', description: '可由司法院開放資料平台查得。第一版優先支援 JSON/CSV 檔型 fileset。', validation: { integer: true, min: 1 } },
+      { name: 'top', label: '取得筆數上限', type: 'number', required: false, placeholder: '50', validation: { integer: true, min: 1, max: 1000 } },
+      { name: 'skip', label: '跳過筆數', type: 'number', required: false, defaultValue: 0, placeholder: '0', validation: { integer: true, min: 0 } },
     ],
   },
 ];

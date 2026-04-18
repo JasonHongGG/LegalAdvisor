@@ -1,6 +1,8 @@
 import type { EventLevel, RunStatus } from '@legaladvisor/shared';
 import type { RunRepository } from '../ports/repositories.js';
 import type { RunExecutionReporter } from '../ports/runtime.js';
+import { canTransitionRunStatus } from '../../crawl-core/runStateMachine.js';
+import { ConflictError, NotFoundError } from '../../domain/errors.js';
 
 const RUN_STATUS_MESSAGES: Record<RunStatus, string> = {
   draft: '任務草稿已建立。',
@@ -34,6 +36,19 @@ export class RunLifecycleService {
       eventDetails?: Record<string, unknown>;
     },
   ) {
+    const currentStatus = await this.runRepository.getRunStatus(runId);
+    if (!currentStatus) {
+      throw new NotFoundError('Run not found', { runId });
+    }
+
+    if (!canTransitionRunStatus(currentStatus, status)) {
+      throw new ConflictError('Run status transition is not allowed', {
+        runId,
+        currentStatus,
+        nextStatus: status,
+      });
+    }
+
     await this.runRepository.setRunStatus(runId, status, options?.summary);
     await this.runActivityReporter.appendRunEvent(
       runId,

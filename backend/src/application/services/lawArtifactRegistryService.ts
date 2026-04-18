@@ -55,7 +55,7 @@ export class LawArtifactRegistryService {
       versionFingerprint,
     );
 
-    if (existingVersion) {
+    if (existingVersion && existingVersion.artifacts.length > 0) {
       for (const artifact of existingVersion.artifacts) {
         await this.artifactRepository.linkRunArtifact({
           runId: input.runId,
